@@ -346,9 +346,10 @@ async function saveEng(sid, k, patch) {
 
 
 /* ---------------- Laura: matura z matematyki (wyniki z działów) ---------------- */
-const MATH_TOPICS = ["Liczby", "Logarytmy", "Procenty", "Równania i nierówności", "Funkcja liniowa", "Równanie prostej", "Układ równań liniowych", "Funkcja kwadratowa", "Wielomiany i wyrażenia algebraiczne", "Funkcje i wykresy", "Ciągi", "Trygonometria", "Planimetria", "Stereometria", "Geometria analityczna", "Statystyka", "Kombinatoryka", "Rachunek prawdopodobieństwa", "Dowody algebraiczne"];
+const MATH_TOPICS = ["Liczby", "Logarytmy", "Procenty", "Wartość bezwzględna", "Równania i nierówności", "Funkcja liniowa", "Równanie prostej", "Układ równań liniowych", "Funkcja kwadratowa", "Wielomiany i wyrażenia algebraiczne", "Funkcje i wykresy", "Ciągi", "Trygonometria", "Planimetria", "Stereometria", "Geometria analityczna", "Statystyka", "Kombinatoryka", "Rachunek prawdopodobieństwa", "Dowody algebraiczne"];
 const MATH_DEFAULT = ["1755f4c6-dab0-4b23-85db-fde8d315a6a6", "42c91f5f-fdf2-40f1-a126-5dd12ecbfb10", "d746ae16-319c-41cc-86d1-7580ed07586b", "c30636f9-f61c-41b7-925f-0aa9c2c74a46", "maja", "dc67cb6a-8864-4384-ab7a-dd2df65a7bc1", "f1759b5c-8e20-4498-8b8a-c6d78ce16c3b"];
-const tkey = i => "t" + pad(i + 1);
+const MATH_KEYS = ["t01", "t02", "t03", "t20", "t04", "t05", "t06", "t07", "t08", "t09", "t10", "t11", "t12", "t13", "t14", "t15", "t16", "t17", "t18", "t19"];
+const tkey = i => MATH_KEYS[i];
 const pctChip = p => p === undefined || p === null || p === "" ? "" : `<span class="chip ${p >= 70 ? "ok" : p >= 50 ? "warn" : "bad"}">${p}%</span>`;
 function mathStats(sid) {
   const t = (S.data.mathProgress[sid] || {}).topics || {};
