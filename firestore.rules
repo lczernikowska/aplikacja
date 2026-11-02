@@ -1,0 +1,58 @@
+rules_version = '2';
+// Reguły bazy: Laura widzi i zmienia wszystko, uczeń widzi tylko swoje zadania i wyniki.
+// ZMIEŃ e-mail poniżej, jeśli logujesz się innym adresem niż w config.js.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isAdmin() { return signedIn() && request.auth.token.email == 'l.czernikowska@gmail.com'; }
+    function myStudentId() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.studentId; }
+
+    match /users/{uid} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      allow write: if isAdmin();
+    }
+    match /tests/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+    match /assignments/{id} {
+      allow read: if isAdmin() || (signedIn() && resource.data.studentId == myStudentId());
+      allow write: if isAdmin();
+    }
+    match /results/{id} {
+      allow read: if isAdmin() || (signedIn() && resource.data.studentId == myStudentId());
+      allow create: if isAdmin() || (signedIn()
+        && request.resource.data.studentId == myStudentId()
+        && request.resource.data.assignmentId == id
+        && get(/databases/$(database)/documents/assignments/$(id)).data.studentId == myStudentId());
+      allow update, delete: if isAdmin();
+    }
+    match /lessons/{id} {
+      allow read: if isAdmin() || (signedIn() && resource.data.studentId == myStudentId());
+      allow write: if isAdmin();
+    }
+    match /payments/{id} {
+      allow read: if isAdmin() || (signedIn() && resource.data.studentId == myStudentId());
+      allow write: if isAdmin();
+    }
+    match /settings/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+    match /students/{id} {
+      allow read: if isAdmin() || (signedIn() && id == myStudentId());
+      allow write: if isAdmin();
+    }
+    match /engProgress/{id} {
+      allow read: if isAdmin() || (signedIn() && id == myStudentId());
+      allow write: if isAdmin();
+    }
+    match /mathProgress/{id} {
+      allow read: if isAdmin() || (signedIn() && id == myStudentId());
+      allow write: if isAdmin();
+    }
+    match /{col}/{id} {
+      allow read, write: if isAdmin();
+    }
+  }
+}

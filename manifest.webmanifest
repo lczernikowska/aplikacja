@@ -1,0 +1,15 @@
+{
+  "name": "PEWNY EGZAMIN",
+  "short_name": "Pewny Egzamin",
+  "description": "Zadania domowe i testy od Twojej korepetytorki",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#5b2a86",
+  "lang": "pl",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
