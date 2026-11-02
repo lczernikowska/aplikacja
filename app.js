@@ -122,12 +122,13 @@ function errMsg(e) {
 const BAL_FROM = CFG.balanceFrom || "2026-11-01";
 const SUBJ = { mat: "matematyka", ang: "angielski" };
 const zl = n => (Math.round(n * 100) / 100).toLocaleString("pl-PL", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + " zł";
-const effStatus = l => l.status === "planned" && l.date < today() ? "done" : l.status;
+const effStatus = l => l.status;
+const isCharge = p => p.kind === "charge";
 function balanceOf(lessons, payments) {
-  const done = lessons.filter(l => l.date >= BAL_FROM && effStatus(l) === "done");
-  const pays = payments.filter(p => (p.date || "") >= BAL_FROM);
-  const due = done.reduce((a, l) => a + (Number(l.price) || 0), 0), paid = pays.reduce((a, p) => a + (Number(p.amount) || 0), 0);
-  return { done, pays, due, paid, bal: Math.round((due - paid) * 100) / 100 };
+  const done = lessons.filter(l => l.status === "done");
+  const charges = payments.filter(isCharge), pays = payments.filter(p => !isCharge(p));
+  const due = done.reduce((a, l) => a + (Number(l.price) || 0), 0) + charges.reduce((a, c) => a + (Number(c.amount) || 0), 0), paid = pays.reduce((a, p) => a + (Number(p.amount) || 0), 0);
+  return { done, charges, pays, due, paid, bal: Math.round((due - paid) * 100) / 100 };
 }
 function nextLessons(lessons, n) {
   const t = today(), now = new Date(); const hm = pad(now.getHours()) + ":" + pad(now.getMinutes());
@@ -135,7 +136,7 @@ function nextLessons(lessons, n) {
 }
 function balanceBlock(b) {
   const cls = b.bal > 0 ? "bad" : "ok";
-  return `<div class="stat"><span class="small muted">${b.bal > 0 ? "Do zapłaty" : b.bal < 0 ? "Opłacone z góry" : "Stan"}</span><b style="color:var(--${cls})">${b.bal > 0 ? zl(b.bal) : b.bal < 0 ? zl(-b.bal) : "Wszystko opłacone"}</b><span class="small muted">od ${fmtDate(BAL_FROM)}: lekcje ${zl(b.due)} (${b.done.length}) · wpłaty ${zl(b.paid)}</span></div>`;
+  return `<div class="stat"><span class="small muted">${b.bal > 0 ? "Do zapłaty" : b.bal < 0 ? "Nadpłata" : "Stan"}</span><b style="color:var(--${cls})">${b.bal > 0 ? zl(b.bal) : b.bal < 0 ? zl(-b.bal) : "Wszystko opłacone"}</b><span class="small muted">${b.bal > 0 ? "za odbyte lekcje" : b.bal < 0 ? "nadpłata – na kolejne lekcje" : "dziękuję!"}</span></div>`;
 }
 
 async function loadAdmin() {
@@ -474,21 +475,21 @@ const matText = m => norm([m.title, m.topic, (MAT_CATS.find(c => c[0] === m.cate
 function renderPlatnosci() {
   const L = Object.values(S.data.lessons), P = Object.values(S.data.payments);
   const rows = Object.values(S.data.students).map(s => { const ls = L.filter(l => l.studentId === s.id), ps = P.filter(p => p.studentId === s.id); return { s, ls, ps, b: balanceOf(ls, ps), nx: nextLessons(ls, 1)[0] }; })
-    .filter(r => r.ls.some(l => l.date >= BAL_FROM) || r.b.pays.length).sort((a, b) => b.b.bal - a.b.bal || a.s.name.localeCompare(b.s.name, "pl"));
+    .filter(r => r.ls.length || r.ps.length).sort((a, b) => b.b.bal - a.b.bal || a.s.name.localeCompare(b.s.name, "pl"));
   if (S.selP && S.data.students[S.selP]) {
     const r = rows.find(x => x.s.id === S.selP) || { s: S.data.students[S.selP], ls: [], ps: [], b: balanceOf([], []) };
-    const recent = r.ls.filter(l => l.date >= BAL_FROM).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
-    const t = today(); const past = recent.filter(l => l.date < t || l.status === "cancelled" && l.date <= t), up = recent.filter(l => l.date >= t).slice(0, 6);
+    const recent = r.ls.slice().sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+    const t = today(); const past = recent.filter(l => l.date < t || l.status !== "planned" && l.date <= t).slice(-30), up = recent.filter(l => l.date >= t).slice(0, 6);
     const lrow = l => { const st = effStatus(l); return `<div class="row"><span class="grow"><b>${esc(fmtDate(l.date))}, ${esc(l.time || "")}</b><span class="small muted">${esc(SUBJ[l.subject] || l.subject || "")} · ${zl(Number(l.price) || 0)}${l.note ? " · " + esc(l.note) : ""}</span></span><span class="chip ${st === "done" ? "ok" : st === "cancelled" ? "bad" : ""}">${st === "done" ? "odbyta" : st === "cancelled" ? "odwołana" : "zaplanowana"}</span><button class="btn sm ghost" data-act="lessonToggle" data-id="${l.id}">${st === "cancelled" ? "Przywróć" : "Odwołaj"}</button></div>`; };
-    return `<div class="head"><div><button class="btn sm ghost" data-act="selP" data-id="" style="justify-self:start">← Wszyscy</button><p class="eyebrow">Rozliczenie od ${fmtDate(BAL_FROM)}</p><h1>${esc(r.s.name)}</h1></div></div>
+    return `<div class="head"><div><button class="btn sm ghost" data-act="selP" data-id="" style="justify-self:start">← Wszyscy</button><p class="eyebrow">Rozliczenie · to samo widzi uczeń</p><h1>${esc(r.s.name)}</h1></div></div>
     <div class="stats">${balanceBlock(r.b)}</div>
     <form class="panel" id="addPay"><h2>Dodaj wpłatę</h2><div class="frow"><label class="f">Kwota (zł)<input type="number" name="amount" min="1" step="0.01" required></label><label class="f">Data<input type="date" name="date" value="${today()}" required></label><label class="f">Sposób<select name="method"><option>przelew</option><option>gotówka</option><option>BLIK</option></select></label><button class="btn primary" type="submit">Dodaj</button></div></form>
-    <section class="panel"><h2>Wpłaty</h2>${r.b.pays.length ? r.b.pays.sort((a, b) => (b.date || "").localeCompare(a.date || "")).map(p => `<div class="row"><span class="grow"><b>${zl(Number(p.amount) || 0)}</b><span class="small muted">${esc(fmtDate(p.date))} · ${esc(p.method || "")}</span></span><button class="btn sm ghost" data-act="delPay" data-id="${p.id}">usuń</button></div>`).join("") : '<p class="empty">Brak wpłat od 1 listopada.</p>'}</section>
+    <section class="panel"><h2>Wpłaty</h2>${r.b.pays.length ? r.b.pays.sort((a, b) => (b.date || "").localeCompare(a.date || "")).map(p => `<div class="row"><span class="grow"><b>${zl(Number(p.amount) || 0)}</b><span class="small muted">${esc(fmtDate(p.date))} · ${esc(p.method || "")}</span></span><button class="btn sm ghost" data-act="delPay" data-id="${p.id}">usuń</button></div>`).join("") : '<p class="empty">Brak wpłat.</p>'}</section>
     <section class="panel"><h2>Najbliższe lekcje</h2><div class="list">${up.map(lrow).join("") || '<p class="empty">Brak.</p>'}</div></section>
-    <section class="panel"><h2>Lekcje od 1 listopada</h2><p class="small muted">Lekcja z minionego dnia liczy się automatycznie jako odbyta, chyba że ją odwołasz.</p><div class="list">${past.reverse().map(lrow).join("") || '<p class="empty">Jeszcze żadnych.</p>'}</div></section>`;
+    <section class="panel"><h2>Ostatnie lekcje</h2><p class="small muted">Do zapłaty liczą się tylko lekcje oznaczone jako odbyte – tak jak w aplikacji dla korepetytorki.</p><div class="list">${past.reverse().map(lrow).join("") || '<p class="empty">Jeszcze żadnych.</p>'}</div></section>`;
   }
-  return `<div class="head"><div><p class="eyebrow">Stan od ${fmtDate(BAL_FROM)} · to samo widzi uczeń</p><h1>Płatności</h1></div></div>
-  <div class="list">${rows.map(r => `<button class="row" data-act="selP" data-id="${r.s.id}"><span class="grow"><b>${esc(r.s.name)}</b><span class="small muted">lekcje ${zl(r.b.due)} · wpłaty ${zl(r.b.paid)}${r.nx ? " · następna: " + esc(fmtDate(r.nx.date) + ", " + (r.nx.time || "")) : ""}</span></span><span class="chip ${r.b.bal > 0 ? "bad" : "ok"}">${r.b.bal > 0 ? "do zapłaty " + zl(r.b.bal) : r.b.bal < 0 ? "z góry " + zl(-r.b.bal) : "opłacone"}</span></button>`).join("") || '<p class="empty">Brak danych – zaimportuj lekcje w Ustawieniach.</p>'}</div>`;
+  return `<div class="head"><div><p class="eyebrow">Stan na dziś · to samo widzi uczeń</p><h1>Płatności</h1></div></div>
+  <div class="list">${rows.map(r => `<button class="row" data-act="selP" data-id="${r.s.id}"><span class="grow"><b>${esc(r.s.name)}</b><span class="small muted">do zapłaty ${zl(r.b.due)} · wpłaty ${zl(r.b.paid)}${r.nx ? " · następna: " + esc(fmtDate(r.nx.date) + ", " + (r.nx.time || "")) : ""}</span></span><span class="chip ${r.b.bal > 0 ? "bad" : "ok"}">${r.b.bal > 0 ? "do zapłaty " + zl(r.b.bal) : r.b.bal < 0 ? "nadpłata " + zl(-r.b.bal) : "opłacone"}</span></button>`).join("") || '<p class="empty">Brak danych – zaimportuj lekcje w Ustawieniach.</p>'}</div>`;
 }
 
 /* ---------------- Laura: zadania ---------------- */
@@ -678,10 +679,17 @@ root.addEventListener("change", async e => {
   try {
     const data = JSON.parse(await e.target.files[0].text());
     if (data.format !== "pewny-egzamin-export") throw new Error("To nie jest plik eksportu z poprzedniej aplikacji.");
-    const cols = [["students", "uczniów"], ["lessons", "lekcji"], ["payments", "wpłat"], ["charges", "rozliczeń"], ["settings", "ustawień"], ["plans", "planów"], ["tests", "testów"], ["materials", "materiałów"]];
+    data.payments = { ...(data.payments || {}) };
+    for (const [cid, c] of Object.entries(data.charges || {})) data.payments["ch-" + cid] = { ...c, kind: "charge" };
+    delete data.charges;
+    const cols = [["students", "uczniów"], ["lessons", "lekcji"], ["payments", "wpłat"], ["settings", "ustawień"], ["plans", "planów"], ["tests", "testów"], ["materials", "materiałów"]];
     for (const [c, label] of cols) {
       const entries = Object.entries(data[c] || {}); if (!entries.length) continue;
       await B.bulk(c, entries, n => { st.textContent = `Importuję ${label}: ${n}/${entries.length}…`; });
+    }
+    if (data.mirror) for (const c of ["lessons", "payments"]) {
+      const keep = new Set(Object.keys(data[c] || {})); const gone = Object.keys(S.data[c] || {}).filter(id => !keep.has(id));
+      let n = 0; for (const id of gone) { await B.del(c, id); st.textContent = `Usuwam nieaktualne (${c}): ${++n}/${gone.length}…`; }
     }
     await loadAdmin(); render();
     toast(`Zaimportowano: ${Object.keys(data.students || {}).length} uczniów, ${Object.keys(data.lessons || {}).length} lekcji, ${Object.keys(data.payments || {}).length} wpłat`);
