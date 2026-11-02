@@ -141,7 +141,7 @@ function balanceBlock(b) {
 async function loadAdmin() {
   const [students, plans, tests, assignments, results, planState, mathProgress, materials, lessons, payments, engProgress] = await Promise.all(["students", "plans", "tests", "assignments", "results", "planState", "mathProgress", "materials", "lessons", "payments", "engProgress"].map(c => B.list(c)));
   const by = a => Object.fromEntries(a.map(x => [x.id, x]));
-  S.data = { students: by(students), plans: by(plans), tests: by(tests), assignments: by(assignments), results: by(results), planState: by(planState), mathProgress: by(mathProgress), materials: by(materials), lessons: by(lessons), payments: by(payments), engProgress: by(engProgress) };
+  S.data = { students: by(students), plans: by(plans), tests: by(tests), assignments: by(assignments), results: by(results), planState: by(planState), mathProgress: by(mathProgress), materials: { ...Object.fromEntries((SEED.materials || []).map(m => [m.id, m])), ...by(materials) }, lessons: by(lessons), payments: by(payments), engProgress: by(engProgress) };
 }
 async function loadStudent() {
   const sid = S.user.studentId;
