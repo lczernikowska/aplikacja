@@ -308,7 +308,7 @@ function renderMaturzysci() {
     <span class="chips">${l.phase ? `<span class="chip ${l.phase === "Arkusze" ? "mus" : "acc"}">${esc(l.phase)}</span>` : ""}${done ? '<span class="chip ok">zrobione</span>' : isNext ? '<span class="chip mus">następna</span>' : ""}</span></summary>
     <div class="lbody">${l.goal ? `<p><b>Cel:</b> ${esc(l.goal)}</p>` : ""}
     <div class="blocks">${(l.blocks || []).map(b => `<div class="blk"><span class="min">${b.min ? b.min + "′" : ""}</span><div><b>${esc(b.what)}</b>${b.items && b.items.length ? `<ul>${b.items.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}</div></div>`).join("")}</div>
-    ${(l.mats || []).length ? `<div class="chips"><span class="eyebrow">Materiał na lekcję</span>${l.mats.map(k => { const id = "z" + pad(k); const m = S.data.materials[id]; return m ? `<button class="btn sm mustard" data-act="openMat" data-id="${id}">Zestaw ${pad(k)}</button>` : `<span class="chip">Zestaw ${pad(k)} – do przygotowania</span>`; }).join("")}</div>` : ""}
+    ${(l.mats || []).length ? `<div class="chips"><span class="eyebrow">Materiał na lekcję</span>${l.mats.map(k => { const id = "z" + pad(k); const m = S.data.materials[id]; const p = S.sel === "michal" && S.data.materials[id + "p"]; return (m ? `<button class="btn sm mustard" data-act="openMat" data-id="${id}">Zestaw ${pad(k)}</button>` : `<span class="chip">Zestaw ${pad(k)} – do przygotowania</span>`) + (p ? `<button class="btn sm primary" data-act="openMat" data-id="${id}p">Zestaw ${pad(k)} PLUS</button>` : ""); }).join("")}</div>` : ""}
     ${hw ? `<div class="hw"><p class="eyebrow">Praca domowa</p>${hw}</div>` : ""}
     <label class="f">Twoje notatki<textarea data-note="${l.n}" placeholder="np. co poszło słabo, co powtórzyć">${esc((st.notes || {})[l.n] || "")}</textarea></label>
     <div class="chips"><label class="check"><input type="checkbox" data-act="toggleDone" data-n="${l.n}" ${done ? "checked" : ""}> Lekcja zrobiona</label>
@@ -389,7 +389,7 @@ async function saveMath(sid, k, patch) {
 
 
 /* ---------------- Laura: materiały na lekcje ---------------- */
-const MAT_CATS = [["ang-pr", "Angielski – rozszerzenie"], ["ang-pp", "Angielski – podstawa"], ["mat", "Matematyka"]];
+const MAT_CATS = [["ang-pr", "Angielski – rozszerzenie"], ["ang-c1", "Angielski – C1 PLUS"], ["ang-pp", "Angielski – podstawa"], ["mat", "Matematyka"]];
 (function () { const st = document.createElement("style"); st.textContent = `.md{max-width:780px;display:grid;gap:12px}.md h2{font-size:20px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}.md h3{font-size:16px;margin-top:6px}.md p{line-height:1.65}.md .mdq{margin:0;background:var(--surface);border-left:3px solid var(--mustard);padding:10px 16px;border-radius:6px;display:grid;gap:8px}.md ol,.md ul{margin:0;padding-left:24px;display:grid;gap:6px}.md ul.mdsub{list-style:none;padding-left:4px;margin-top:4px;gap:2px}.md table td,.md table th{white-space:normal;vertical-align:top}.keybox{border:1px dashed var(--accent);border-radius:var(--r);padding:16px;background:var(--accent-soft)}#printArea{display:none}
 @media print{@page{size:A4;margin:16mm 15mm}body{background:#fff!important;padding:0!important}#app,.toast,.ov{display:none!important}#printArea{display:block!important;color:#000;font:11.5pt/1.5 var(--f)}
 #printArea .pbrand{display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #5b2a86;padding-bottom:6px;margin-bottom:14px;font-size:9pt;color:#5b2a86;font-weight:700;letter-spacing:.08em}
