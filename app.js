@@ -376,11 +376,12 @@ function renderMatematyka() {
   const items = MATH_TOPICS.map((n, i) => { const k = tkey(i); const x = t[k] || {};
     return `<div class="row"><span class="num">${i + 1}</span><span class="grow"><b>${esc(n)}</b>${x.date ? `<span class="small muted">wpisane ${new Date(x.date).toLocaleDateString("pl-PL")}</span>` : ""}</span>
     <label class="check"><input type="checkbox" data-mdone="${k}" ${x.done ? "checked" : ""}> zrobione</label>
-    <label class="f" style="width:110px;grid-auto-flow:column;align-items:center;gap:6px"><input type="number" min="0" max="100" inputmode="numeric" data-mpct="${k}" value="${typeof x.pct === "number" ? x.pct : ""}" placeholder="%" aria-label="Wynik w procentach: ${esc(n)}">%</label>${pctChip(x.pct)}</div>`; }).join("");
+    <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="number" min="0" step="0.5" inputmode="decimal" data-mpts="${k}" value="${typeof x.pts === "number" ? x.pts : ""}" placeholder="pkt" style="width:72px" aria-label="Punkty: ${esc(n)}"><span class="muted">na</span><input type="number" min="1" step="0.5" inputmode="decimal" data-mmax="${k}" value="${typeof x.max === "number" ? x.max : (mathMaxDefault(k) ?? "")}" placeholder="max" style="width:72px" aria-label="Maksymalna liczba punktów: ${esc(n)}"><span class="muted small">pkt</span></span>${pctChip(x.pct)}</div>`; }).join("");
   return head + pills + `<section class="panel"><div class="head"><div><h2>${esc(s.name)}</h2><p class="small muted">${esc(s.klasa || "")}</p></div><button class="btn sm ghost" data-act="mathRemove" data-id="${s.id}">Usuń z maturzystów</button></div>
   <div class="stats"><div class="stat"><span class="small muted">Działy zrobione</span><b>${st.done}/${MATH_TOPICS.length}</b></div><div class="stat"><span class="small muted">Średni wynik</span><b>${st.avg === null ? "–" : st.avg + "%"}</b></div></div>
-  <p class="small muted">Wpisz wynik w procentach – zapisuje się sam, a dział oznacza się jako zrobiony.</p></section><div class="list">${items}</div>`;
+  <p class="small muted">Wpisz, ile punktów uczeń zdobył i na ile był test – procent liczy się sam, a dział oznacza się jako zrobiony. Maksymalna liczba punktów podpowiada się z wyników innych uczniów.</p></section><div class="list">${items}</div>`;
 }
+function mathMaxDefault(k) { for (const p of Object.values(S.data.mathProgress || {})) { const x = (p.topics || {})[k]; if (x && typeof x.max === "number") return x.max; } return null; }
 async function saveMath(sid, k, patch) {
   const mp = S.data.mathProgress[sid] || { id: sid, topics: {} }; mp.topics = mp.topics || {};
   mp.topics[k] = { ...(mp.topics[k] || {}), ...patch, date: new Date().toISOString() }; S.data.mathProgress[sid] = mp;
@@ -656,12 +657,17 @@ root.addEventListener("change", async e => {
     } catch (err) { toast(errMsg(err)); }
     return;
   }
-  if (e.target.dataset.mdone || e.target.dataset.mpct !== undefined) {
+  if (e.target.dataset.mdone || e.target.dataset.mpts !== undefined || e.target.dataset.mmax !== undefined) {
     try {
       if (e.target.dataset.mdone) await saveMath(S.selM, e.target.dataset.mdone, { done: e.target.checked });
-      else { const v = e.target.value.trim(); const k = e.target.dataset.mpct;
-        if (v === "") await saveMath(S.selM, k, { pct: null }); else { const p = Math.max(0, Math.min(100, Math.round(+v))); await saveMath(S.selM, k, { pct: p, done: true }); }
-        toast("Zapisano"); }
+      else {
+        const k = e.target.dataset.mpts || e.target.dataset.mmax; const row = e.target.closest(".row");
+        const ptsV = row.querySelector(`[data-mpts="${k}"]`).value.trim(), maxV = row.querySelector(`[data-mmax="${k}"]`).value.trim();
+        const pts = ptsV === "" ? null : Math.max(0, +ptsV), max = maxV === "" ? null : Math.max(0, +maxV);
+        if (pts === null) { await saveMath(S.selM, k, { pts: null, max, pct: null }); }
+        else if (!max) { toast("Wpisz też, na ile punktów był test."); return; }
+        else { if (pts > max) { toast("Punktów jest więcej niż maksimum – sprawdź liczby."); return; } await saveMath(S.selM, k, { pts, max, pct: Math.round(pts / max * 100), done: true }); toast("Zapisano: " + Math.round(pts / max * 100) + "%"); }
+      }
       render();
     } catch (err) { toast(errMsg(err)); }
     return;
