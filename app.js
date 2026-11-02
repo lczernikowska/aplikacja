@@ -390,7 +390,13 @@ async function saveMath(sid, k, patch) {
 
 /* ---------------- Laura: materiały na lekcje ---------------- */
 const MAT_CATS = [["ang-pr", "Angielski – rozszerzenie"], ["ang-pp", "Angielski – podstawa"], ["mat", "Matematyka"]];
-(function () { const st = document.createElement("style"); st.textContent = `.md{max-width:780px;display:grid;gap:12px}.md h2{font-size:20px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}.md h3{font-size:16px;margin-top:6px}.md p{line-height:1.65}.md .mdq{margin:0;background:var(--surface);border-left:3px solid var(--mustard);padding:10px 16px;border-radius:6px;display:grid;gap:8px}.md ol,.md ul{margin:0;padding-left:24px;display:grid;gap:6px}.md ul.mdsub{list-style:none;padding-left:4px;margin-top:4px;gap:2px}.md table td,.md table th{white-space:normal;vertical-align:top}.keybox{border:1px dashed var(--accent);border-radius:var(--r);padding:16px;background:var(--accent-soft)}`; document.head.appendChild(st); })();
+(function () { const st = document.createElement("style"); st.textContent = `.md{max-width:780px;display:grid;gap:12px}.md h2{font-size:20px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}.md h3{font-size:16px;margin-top:6px}.md p{line-height:1.65}.md .mdq{margin:0;background:var(--surface);border-left:3px solid var(--mustard);padding:10px 16px;border-radius:6px;display:grid;gap:8px}.md ol,.md ul{margin:0;padding-left:24px;display:grid;gap:6px}.md ul.mdsub{list-style:none;padding-left:4px;margin-top:4px;gap:2px}.md table td,.md table th{white-space:normal;vertical-align:top}.keybox{border:1px dashed var(--accent);border-radius:var(--r);padding:16px;background:var(--accent-soft)}#printArea{display:none}
+@media print{@page{size:A4;margin:16mm 15mm}body{background:#fff!important;padding:0!important}#app,.toast,.ov{display:none!important}#printArea{display:block!important;color:#000;font:11.5pt/1.5 var(--f)}
+#printArea .pbrand{display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #5b2a86;padding-bottom:6px;margin-bottom:14px;font-size:9pt;color:#5b2a86;font-weight:700;letter-spacing:.08em}
+#printArea h1{font-size:18pt;margin:0 0 10px}#printArea .md{max-width:none;gap:8px}#printArea .md h2{font-size:14pt;border-top:1px solid #bbb;margin-top:10px;padding-top:10px}
+#printArea .md .mdq{background:#f4f1f8;border-left:3px solid #d9a21b;break-inside:avoid}#printArea table{break-inside:avoid;width:100%;border-collapse:collapse}#printArea th,#printArea td{border:1px solid #ccc;padding:4px 7px;white-space:normal;font-size:10.5pt}
+#printArea .pbreak{break-before:page;page-break-before:always}#printArea p,#printArea li{orphans:3;widows:3}#printArea .md ol>li{break-inside:avoid}
+#printArea .namebox{display:flex;gap:24px;margin-bottom:12px;font-size:10.5pt}#printArea .namebox span{flex:1;border-bottom:1px solid #999;padding-bottom:2px}}`; document.head.appendChild(st); })();
 function inl(s) { return esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*])\*([^*\s][^*]*?)\*(?!\*)/g, "$1<i>$2</i>"); }
 function md(src) {
   const L = String(src || "").replace(/\r/g, "").split("\n"); const out = []; let i = 0;
@@ -428,10 +434,21 @@ function renderMaterialy() {
   <div class="list">${list.map(m => { const u = used(m.id); return `<button class="row" data-act="openMat" data-id="${m.id}" data-s-mat="${esc(matText(m))}"><span class="grow"><b>${esc(m.title)}</b><span class="small muted">${esc(m.topic || "")}${u.length ? " · w planie: " + esc(u.join(", ")) : ""}</span></span><span class="chip acc">${esc((MAT_CATS.find(c => c[0] === m.category) || ["", ""])[1])}</span></button>`; }).join("") || '<p class="empty">Brak materiałów w tej kategorii.</p>'}</div>
   <form class="panel" id="importMat"><h2>Dodaj materiał z kodu</h2><p class="small muted">Wklej kod materiału, który przygotuje Ci Claude.</p><textarea name="json" rows="4" placeholder='{"id":"z02","title":"...","body":"..."}'></textarea><div><button class="btn primary" type="submit">Dodaj materiał</button></div></form>`;
 }
+
+function printMat(withKey) {
+  const m = S.data.materials[S.view.id]; if (!m) return;
+  let pa = document.getElementById("printArea"); if (!pa) { pa = document.createElement("div"); pa.id = "printArea"; document.body.appendChild(pa); }
+  pa.innerHTML = `<div class="pbrand"><span>PEWNY EGZAMIN</span><span>${esc((MAT_CATS.find(c => c[0] === m.category) || ["", ""])[1])}</span></div>
+  <div class="namebox"><span>Imię i nazwisko:</span><span>Data:</span></div><h1>${esc(m.title)}</h1><div class="md">${md(m.body)}</div>
+  ${withKey && m.key ? `<div class="pbreak" style="color:#888;font-size:10pt;text-align:center;padding-top:40mm">Ta strona jest celowo pusta.<br>Odpowiedzi znajdziesz na następnej stronie – najpierw rozwiąż wszystkie zadania.</div><div class="pbreak md"><h2 style="border:0;margin-top:0;padding-top:0">Odpowiedzi</h2>${md(m.key)}</div>` : ""}`;
+  const old = document.title; document.title = m.title.replace(/[:·]/g, " -").replace(/\s+/g, " ") + (withKey ? "" : " (bez odpowiedzi)");
+  setTimeout(() => { window.print(); document.title = old; }, 50);
+}
 function renderMat() {
   const m = S.data.materials[S.view.id]; if (!m) { S.view = null; return render(); }
   root.innerHTML = frame(`<div class="head"><div><button class="btn sm ghost" data-act="back" style="justify-self:start">← Wróć</button><p class="eyebrow">${esc((MAT_CATS.find(c => c[0] === m.category) || ["", ""])[1])}</p><h1>${esc(m.title)}</h1></div>
-  ${m.key ? `<button class="btn ${S.view.showKey ? "" : "mustard"}" data-act="toggleKey">${S.view.showKey ? "Ukryj klucz" : "Pokaż klucz odpowiedzi"}</button>` : ""}</div>
+  <div class="acts">${m.key ? `<button class="btn ${S.view.showKey ? "" : "mustard"}" data-act="toggleKey">${S.view.showKey ? "Ukryj klucz" : "Pokaż klucz odpowiedzi"}</button>` : ""}
+  <button class="btn primary" data-act="printMat" data-key="1">PDF z odpowiedziami</button><button class="btn" data-act="printMat" data-key="0">PDF bez odpowiedzi</button></div></div>
   <article class="md">${md(m.body)}</article>
   ${m.key && S.view.showKey ? `<section class="keybox md"><h2 style="border:0;margin:0;padding:0">Klucz odpowiedzi</h2>${md(m.key)}</section>` : ""}`);
 }
@@ -584,6 +601,7 @@ root.addEventListener("click", async e => {
     else if (act === "lessonToggle") { const l = S.data.lessons[el.dataset.id]; const ns = l.status === "cancelled" ? "planned" : "cancelled"; await B.update("lessons", l.id, { status: ns, updatedAt: new Date().toISOString() }); l.status = ns; toast(ns === "cancelled" ? "Lekcja odwołana" : "Lekcja przywrócona"); render(); }
     else if (act === "delPay") { if (!(await ask("Usunąć tę wpłatę?", "Usuń"))) return; await B.del("payments", el.dataset.id); delete S.data.payments[el.dataset.id]; render(); }
     else if (act === "openMat") { S.view = { type: "mat", id: el.dataset.id, showKey: false, from: S.tab }; render(); window.scrollTo(0, 0); }
+    else if (act === "printMat") printMat(el.dataset.key === "1");
     else if (act === "toggleKey") { S.view.showKey = !S.view.showKey; const y = window.scrollY; render(); window.scrollTo(0, y); }
     else if (act === "matCat") { S.matCat = el.dataset.k; render(); }
     else if (act === "engView") { S.engView = el.dataset.k; render(); }
