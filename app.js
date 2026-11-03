@@ -372,6 +372,22 @@ function passageHtml(p) {
   const paras = String(p.text || "").split(/\n\s*\n/).map(x => { const m = x.match(/^\[([A-H])\]\s*/); return `<p>${m ? `<span class="pl">${m[1]}</span> ` : ""}${esc(m ? x.slice(m[0].length) : x)}</p>`; }).join("");
   return `<div class="passage">${p.title ? `<h3>${esc(p.title)}</h3>` : ""}${p.intro ? `<p class="small muted">${esc(p.intro)}</p>` : ""}${paras}</div>`;
 }
+/* ---------- zdjęcia rozwiązań zadań otwartych ---------- */
+function compressImg(file, maxW = 1280, q = 0.6) {
+  return new Promise((res, rej) => { const fr = new FileReader(); fr.onerror = rej; fr.onload = () => { const im = new Image(); im.onerror = rej; im.onload = () => { const sc = Math.min(1, maxW / Math.max(im.width, im.height)); const c = document.createElement("canvas"); c.width = Math.round(im.width * sc); c.height = Math.round(im.height * sc); const x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height); x.drawImage(im, 0, 0, c.width, c.height); res(c.toDataURL("image/jpeg", q)); }; im.src = fr.result; }; fr.readAsDataURL(file); });
+}
+function shrinkData(url, maxW, q) { return new Promise(res => { const im = new Image(); im.onload = () => { const sc = Math.min(1, maxW / Math.max(im.width, im.height)); const c = document.createElement("canvas"); c.width = Math.round(im.width * sc); c.height = Math.round(im.height * sc); const x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height); x.drawImage(im, 0, 0, c.width, c.height); res(c.toDataURL("image/jpeg", q)); }; im.src = url; }); }
+async function fitPhotos(photos) {
+  const size = p => Object.values(p).flat().reduce((a, u) => a + u.length, 0);
+  let out = photos; const steps = [[1100, 0.55], [900, 0.5], [750, 0.45], [600, 0.4]];
+  for (const [w, q] of steps) { if (size(out) < 850000) break; const n = {}; for (const [k, arr] of Object.entries(out)) n[k] = await Promise.all(arr.map(u => shrinkData(u, w, q))); out = n; }
+  return size(out) < 950000 ? out : null;
+}
+function photoBox(n, list, editable) {
+  return `<div class="phs">${(list || []).map((u, i) => `<span class="ph"><img src="${u}" alt="Zdjęcie rozwiązania ${i + 1}" data-zoom>${editable ? `<button type="button" class="phx" data-act="phDel" data-n="${n}" data-i="${i}" aria-label="Usuń zdjęcie">×</button>` : ""}</span>`).join("")}
+  ${editable ? `<label class="btn sm mustard phadd">📷 Dodaj zdjęcie rozwiązania<input type="file" accept="image/*" data-photo="${n}" hidden multiple></label>` : ""}</div>`;
+}
+const openMax = t => t.questions.reduce((s, q) => s + (q.type === "open" ? q.pts || 0 : 0), 0);
 const qMax = q => q.type === "open" ? 0 : q.type === "multi" ? q.c.length : (q.pts || 1);
 const qScore = (q, a) => { if (q.type === "open" || a === undefined) return 0; if (q.type === "multi") return Math.min(q.c.length, (a || []).filter(x => q.c.includes(x)).length); return a === q.c ? (q.pts || 1) : 0; };
 const scoreTest = (t, answers) => t.questions.reduce((s, q, n) => s + qScore(q, answers[n]), 0);
@@ -391,7 +407,14 @@ function qHtml(q, n, answers, mode) {
   const label = q.label || `Zadanie ${n + 1}.`;
   if (q.type === "open") {
     return `<div class="q"><span class="qn">${q.imgs ? "" : esc(label) + " "}<span class="chip">zadanie otwarte · ${q.pts} pkt</span></span>${imgs}${q.t ? `<div class="qt">${esc(q.t)}</div>` : ""}
-    ${review ? (q.e ? `<div class="expl"><b>Rozwiązanie</b><span>${esc(q.e)}</span></div>` : "") : `<p class="small muted">Rozwiąż w zeszycie. Rozwiązanie zobaczysz po oddaniu testu.</p>`}</div>`;
+    ${(() => { const v = S.view || {}; const r = v.result || {};
+      if (mode === "take") return `<p class="small muted">Rozwiąż w zeszycie albo na kartce, zrób zdjęcie i dodaj je tutaj. Rozwiązanie zobaczysz po oddaniu testu.</p>${photoBox(n, (v.photos || {})[n], true)}`;
+      if (mode !== "result") return q.e ? `<div class="expl"><b>Rozwiązanie</b><span>${esc(q.e)}</span></div>` : "";
+      const ph = (r.photos || {})[n]; const g = (r.openPts || {})[n]; const admin = S.user && S.user.role === "admin";
+      return `${ph && ph.length ? `<div class="small muted">Zdjęcie rozwiązania:</div>${photoBox(n, ph, false)}` : '<p class="small muted">Brak zdjęcia rozwiązania.</p>'}
+      ${admin ? `<label class="f gpts">Punkty za to zadanie<span style="display:flex;gap:8px;align-items:center"><input type="number" min="0" max="${q.pts}" step="0.5" inputmode="decimal" data-gpts="${n}" value="${g ?? ""}" style="width:90px"> <span class="muted">/ ${q.pts} pkt</span></span></label>`
+        : `<span class="verdict ${g == null ? "" : g === q.pts ? "ok" : "bad"}">${g == null ? "Czeka na sprawdzenie" : `Ocena: ${g}/${q.pts} pkt`}</span>`}
+      ${q.e ? `<div class="expl"><b>Rozwiązanie</b><span>${esc(q.e)}</span></div>` : ""}`; })()}</div>`;
   }
   const L = q.L || (q.type === "tf" ? null : "ABCDEFGH".split(""));
   const bare = !!q.imgs && !q.o;
@@ -417,8 +440,10 @@ function renderTest() {
     bottom = `<div class="submitbar"><span class="muted">Odpowiedzi: <b>${answered}/${total}</b></span><button class="btn primary" data-act="submitTest" ${S.busy ? "disabled" : ""}>Oddaj test</button></div>`;
   } else if (v.mode === "result") {
     const r = v.result;
-    const op = openPts(t);
-    top = `<div class="scorecard"><span class="score">${r.score}/${r.max}</span><div><b>${pct(r.score, r.max)}%</b><p class="small muted">${op ? `Punkty za zadania zamknięte. Zadania otwarte (${op} pkt) sprawdź z rozwiązaniami poniżej.` : "Przejrzyj wyjaśnienia przy pytaniach, zwłaszcza tam, gdzie jest „Źle”."}</p></div></div>`;
+    const op = openPts(t); const nOpen = t.questions.filter(q => q.type === "open").length; const graded = Object.keys(r.openPts || {}).length;
+    const cs = r.closedScore ?? (graded ? null : r.score), cm = r.closedMax ?? (graded ? null : r.max);
+    const og = Object.values(r.openPts || {}).reduce((a, x) => a + x, 0);
+    top = `<div class="scorecard"><span class="score">${r.score}/${r.max}</span><div><b>${pct(r.score, r.max)}%</b><p class="small muted">${op ? `Zadania zamknięte: ${cs ?? "–"}/${cm ?? "–"} pkt · zadania otwarte: ${graded ? `${og}/${op} pkt${graded < nOpen ? ` (sprawdzone ${graded} z ${nOpen})` : ""}` : `${op} pkt – czekają na sprawdzenie`}` : "Przejrzyj wyjaśnienia przy pytaniach, zwłaszcza tam, gdzie jest „Źle”."}</p></div></div>`;
   } else top = `<div class="notice small">Podgląd z kluczem odpowiedzi i wyjaśnieniami.</div>`;
   root.innerHTML = frame(`<div class="head"><div><button class="btn sm ghost" data-act="back" style="justify-self:start">← Wróć</button><p class="eyebrow">${esc(t.topic || "")}${t.level ? " · " + esc(t.level) : ""}</p><h1>${esc(t.title)}</h1>${v.who ? `<p class="muted">${esc(v.who)}</p>` : ""}</div></div>
   ${top}<div class="sheet">${t.instructions ? `<p class="muted">${esc(t.instructions)}</p>` : ""}${testBody(t, v.answers, v.mode)}</div>${bottom}`);
@@ -428,7 +453,10 @@ async function submitTest() {
   const need = t.questions.filter(q => q.type !== "open").length; const got = t.questions.filter((q, n) => q.type !== "open" && v.answers[n] !== undefined && !(q.type === "multi" && !(v.answers[n] || []).length)).length;
   if (got < need && !(await ask("Nie odpowiedziałeś/aś na wszystkie pytania. Oddać mimo to?", "Oddaj"))) return;
   const score = scoreTest(t, v.answers);
-  const res = { assignmentId: v.assignment.id, studentId: S.user.studentId, testId: t.id, answers: v.answers, score, max: maxTest(t), submittedAt: new Date().toISOString() };
+  const nOpen = t.questions.filter(q => q.type === "open").length, nPh = Object.values(v.photos || {}).filter(a => a.length).length;
+  if (nOpen && nPh < nOpen && !(await ask(`Zdjęcia dodałeś/aś do ${nPh} z ${nOpen} zadań otwartych. Bez zdjęcia nauczycielka nie przyzna punktów. Oddać mimo to?`, "Oddaj"))) return;
+  let photos = {}; if (nPh) { S.busy = true; renderTest(); photos = await fitPhotos(v.photos); S.busy = false; if (!photos) { renderTest(); toast("Zdjęcia są za duże – usuń część z nich i spróbuj jeszcze raz."); return; } }
+  const res = { assignmentId: v.assignment.id, studentId: S.user.studentId, testId: t.id, answers: v.answers, score, max: maxTest(t), closedScore: score, closedMax: maxTest(t), photos, submittedAt: new Date().toISOString() };
   S.busy = true; renderTest();
   try { await B.set("results", v.assignment.id, res); S.data.results[v.assignment.id] = res; S.view = { ...v, mode: "result", result: res }; }
   catch (e) { toast(errMsg(e)); }
@@ -814,6 +842,8 @@ function renderDzis() {
   ${panel("Jutro", tomorrow.length ? `<div class="list">${tomorrow.map(l => lessonRow(l)).join("")}</div>` : emptyP("Jutro bez lekcji."))}
   ${panel("Oznaczone automatycznie", autoD.length ? `<div class="list">${autoD.map(l => `<div class="row"><span class="time">${esc(fmtDate(l.date))} · ${esc(l.time)}</span><span class="grow"><button class="link" type="button" data-act="editLesson" data-id="${l.id}">${esc(lzName(l))}</button><span class="small muted">${zl(Number(l.price) || 0)}</span></span>${statusChip(l.status)}<button class="btn sm ghost" data-act="setStatus" data-id="${l.id}" data-s="cancelled">Jednak odwołana</button></div>`).join("")}</div>` : emptyP("W ostatnim tygodniu nic nie oznaczyło się samo."), "Lekcje, których nie oznaczyłaś, po północy zmieniają się na odbyte i nalicza się płatność. Jeśli któraś się nie odbyła, popraw ją tutaj.")}
   ${panel("Zaległe płatności", debt.length ? `<div class="list">${debt.map(([s, b]) => `<div class="row"><span class="grow"><button class="link" type="button" data-act="stOpen" data-id="${s.id}">${esc(s.name)}</button></span><b style="color:var(--bad)">${zl(b)}</b><button class="btn sm" data-act="newPayment" data-sid="${s.id}">+ Wpłata</button></div>`).join("")}</div>` : emptyP("Nikt nie zalega z płatnością."))}
+  ${(() => { const todo = Object.values(S.data.results).filter(r => { const t = S.data.tests[r.testId]; if (!t || !t.questions) return false; const n = t.questions.filter(q => q.type === "open").length; return n && Object.keys(r.openPts || {}).length < n; }).sort((a, b) => (a.submittedAt || "").localeCompare(b.submittedAt || ""));
+    return todo.length ? panel("Do sprawdzenia", `<div class="list">${todo.map(r => { const a = S.data.assignments[r.assignmentId]; const ph = Object.values(r.photos || {}).filter(x => x.length).length; return `<div class="row"><span class="grow"><b>${esc(sName(r.studentId))}</b><span class="small muted">${esc((S.data.tests[r.testId] || {}).title || "")} · oddane ${esc(fmtDate((r.submittedAt || "").slice(0, 10)))} · zdjęcia: ${ph}</span></span>${a ? `<button class="btn sm primary" data-act="viewResult" data-id="${a.id}">Sprawdź</button>` : ""}</div>`; }).join("")}</div>`, "Zadania otwarte czekają na Twoje punkty.") : ""; })()}
   ${panel("Zadania po terminie", overdue.length ? `<div class="list">${overdue.map(a => `<div class="row"><span class="grow"><button class="link" type="button" data-act="stOpen" data-id="${a.studentId}">${esc(sName(a.studentId))}</button><span class="small muted">${esc(taskTitle(a))}</span></span><span class="chip bad">termin ${esc(fmtDate(a.due))}</span></div>`).join("")}</div>` : emptyP("Brak zaległych zadań."))}
   </div>`;
 }
@@ -1220,6 +1250,7 @@ root.addEventListener("click", async e => {
       S.view = r ? { type: "test", mode: "result", test: t, assignment: a, answers: r.answers || {}, result: r } : { type: "test", mode: "take", test: t, assignment: a, answers: {} };
       render(); window.scrollTo(0, 0);
     }
+    else if (act === "phDel") { const n = el.dataset.n; S.view.photos[n].splice(Number(el.dataset.i), 1); const y = window.scrollY; renderTest(); window.scrollTo(0, y); }
     else if (act === "ans") { if (S.view.mode !== "take") return; const n = el.dataset.n, val = JSON.parse(el.dataset.v), q = S.view.test.questions[n];
       if (q.type === "multi") { let a = (S.view.answers[n] || []).slice(); a = a.includes(val) ? a.filter(x => x !== val) : [...a, val]; if (a.length > (q.k || q.c.length)) a.shift(); S.view.answers[n] = a.sort(); } else S.view.answers[n] = val; const y = window.scrollY; renderTest(); window.scrollTo(0, y); }
     else if (act === "submitTest") await submitTest();
@@ -1273,6 +1304,21 @@ root.addEventListener("change", async e => {
       }
       render();
     } catch (err) { toast(errMsg(err)); }
+    return;
+  }
+  if (e.target.dataset && e.target.dataset.photo !== undefined && S.view && S.view.mode === "take") {
+    const n = e.target.dataset.photo; const files = [...e.target.files]; if (!files.length) return;
+    S.view.photos = S.view.photos || {}; S.view.photos[n] = S.view.photos[n] || [];
+    try { for (const f of files.slice(0, 3)) S.view.photos[n].push(await compressImg(f)); } catch (err) { toast("Nie udało się wczytać zdjęcia."); }
+    const y = window.scrollY; renderTest(); window.scrollTo(0, y); toast("Zdjęcie dodane"); return;
+  }
+  if (e.target.dataset && e.target.dataset.gpts !== undefined && S.view && S.view.result) {
+    const n = e.target.dataset.gpts, q = S.view.test.questions[n], r = S.view.result, aid = S.view.assignment.id;
+    const raw = e.target.value.trim(); const op = { ...(r.openPts || {}) };
+    if (raw === "") delete op[n]; else { const v = Math.round(Number(raw.replace(",", ".")) * 2) / 2; if (!(v >= 0 && v <= q.pts)) { toast(`Wpisz od 0 do ${q.pts} pkt.`); return; } op[n] = v; }
+    const cs = r.closedScore ?? r.score, cm = r.closedMax ?? r.max; const has = Object.keys(op).length;
+    const upd = { openPts: op, closedScore: cs, closedMax: cm, score: cs + Object.values(op).reduce((a, x) => a + x, 0), max: cm + (has ? openMax(S.view.test) : 0), gradedAt: new Date().toISOString() };
+    try { await B.update("results", aid, upd); Object.assign(r, upd); S.data.results[aid] = r; const y = window.scrollY; renderTest(); window.scrollTo(0, y); toast(`Zapisano · wynik ${upd.score}/${upd.max}`); } catch (err) { toast(errMsg(err)); }
     return;
   }
   if (e.target.id === "matNot") { S.matNot = e.target.value; render(); return; }
@@ -1366,6 +1412,7 @@ async function undoLast() {
   finally { UNDO.off = false; if (b) b.disabled = false; undoBtn(); }
 }
 
+document.addEventListener("click", e => { const im = e.target.closest("img[data-zoom]"); if (!im) return; const o = document.createElement("div"); o.className = "zoomov"; o.innerHTML = `<img src="${im.src}" alt="Powiększone zdjęcie">`; o.addEventListener("click", () => o.remove()); document.body.appendChild(o); });
 /* ---------------- start ---------------- */
 (async () => {
   try { B = withUndo(DEMO ? demoBackend() : await fbBackend()); }
