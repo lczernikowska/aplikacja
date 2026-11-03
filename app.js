@@ -209,19 +209,33 @@ function studentResults() {
   return out;
 }
 function customCard(a, r, late) {
+  const pdf = a.kind === "material" ? `<button class="btn sm" data-act="stuPdf" data-id="${a.id}">Pobierz PDF</button>` : "";
   return `<div class="row" style="align-items:flex-start"><span class="grow"><b>${esc(a.title || "Zadanie")}</b>${a.desc ? `<span class="small" style="white-space:pre-wrap;display:block;margin-top:4px">${esc(a.desc)}</span>` : ""}<span class="small muted">${a.due ? "termin: " + fmtDate(a.due) : ""}</span></span>
-  ${r ? '<span class="chip ok">zrobione</span>' : `${late ? '<span class="chip bad">po terminie</span>' : ""}<button class="btn sm primary" data-act="doneCustom" data-id="${a.id}">Zrobione ✓</button>`}</div>`;
+  ${pdf}${r ? '<span class="chip ok">zrobione</span>' : `${late ? '<span class="chip bad">po terminie</span>' : ""}<button class="btn sm primary" data-act="doneCustom" data-id="${a.id}">Zrobione ✓</button>`}</div>`;
 }
-const taskTitle = a => a.kind === "custom" ? (a.title || "Zadanie własne") : ((S.data.tests[a.testId] || {}).title || a.testId);
+const ownKind = a => a.kind === "custom" || a.kind === "material";
+const kindLabel = a => a.kind === "custom" ? "zadanie własne" : a.kind === "material" ? (a.atLesson ? "materiał · dany na lekcji" : "materiał (PDF)") : "test";
+const taskTitle = a => ownKind(a) ? (a.title || "Zadanie własne") : ((S.data.tests[a.testId] || {}).title || a.testId);
+const splitKey = key => { const i = (key || "").search(/^##\s*Słówka/m); return i < 0 ? "" : key.slice(i); };
+const givenTo = (sid, matId) => Object.values(S.data.assignments || {}).filter(a => a.studentId === sid && a.kind === "material" && a.matId === matId);
+const matGivenNames = matId => [...new Set(Object.values(S.data.assignments || {}).filter(a => a.kind === "material" && a.matId === matId).map(a => sName(a.studentId)))];
+function printDoc({ title, category, body, extra }) {
+  let pa = document.getElementById("printArea"); if (!pa) { pa = document.createElement("div"); pa.id = "printArea"; document.body.appendChild(pa); }
+  pa.innerHTML = `<div class="pbrand"><span>PEWNY EGZAMIN</span><span>${esc((MAT_CATS.find(c => c[0] === category) || ["", ""])[1])}</span></div>
+  <div class="namebox"><span>Imię i nazwisko:</span><span>Data:</span></div><h1>${esc(title)}</h1><div class="md">${md(body || "")}</div>${extra || ""}`;
+  const old = document.title; document.title = title.replace(/[:·]/g, " -").replace(/\s+/g, " ");
+  setTimeout(() => { window.print(); document.title = old; }, 50);
+}
 function assignFormHtml(sid) {
   const st = Object.values(S.data.students).sort((a, b) => a.name.localeCompare(b.name, "pl"));
   const ts = Object.values(S.data.tests).sort((a, b) => a.title.localeCompare(b.title, "pl"));
   return `<div class="frow">
   ${sid ? `<input type="hidden" name="sid" value="${sid}">` : `<label class="f">Uczeń<select name="sid" required>${st.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}</select></label>`}
-  <label class="f">Rodzaj<select name="kind" data-kindsel><option value="custom">Zadanie własne</option><option value="test">Test z banku</option></select></label>
+  <label class="f">Rodzaj<select name="kind" data-kindsel><option value="custom">Zadanie własne</option><option value="material">Materiał (zestaw PDF)</option><option value="test">Test z banku</option></select></label>
   <label class="f">Termin<input type="date" name="due" value="${iso(new Date(Date.now() + 6 * 864e5))}"></label></div>
   <div data-kind="custom" style="display:grid;gap:12px"><label class="f">Tytuł<input name="title" placeholder="np. Zadania maturalne z funkcji"></label>
   <label class="f">Opis (opcjonalnie)<textarea name="desc" rows="3" placeholder="np. Arkusz maj 2023, zadania 5–12. Rozwiązania przynieś na lekcję."></textarea></label></div>
+  <div data-kind="material" hidden><label class="f">Materiał<select name="mid">${Object.values(S.data.materials || {}).sort((a, b) => (a.no || 0) - (b.no || 0)).map(m => { const g = sid ? givenTo(sid, m.id) : []; return `<option value="${m.id}">${g.length ? "✓ " : ""}${esc(m.title)}${g.length ? " (już dostał/a)" : ""}</option>`; }).join("")}</select></label><span class="small muted">Uczeń zobaczy przycisk „Pobierz PDF” – zestaw bez odpowiedzi, ze słówkami na końcu.</span></div>
   <div data-kind="test" hidden><label class="f">Test<select name="tid">${ts.map(t => `<option value="${t.id}">${esc(t.title)} (${esc(t.level || "")})</option>`).join("")}</select></label></div>
   <div><button class="btn primary" type="submit">Zadaj</button></div>`;
 }
@@ -229,9 +243,36 @@ async function addCustom(sid, title, desc, due) {
   const id = rid(); const a = { studentId: sid, kind: "custom", title, desc: desc || "", due: due || "", createdAt: new Date().toISOString() };
   await B.set("assignments", id, a); S.data.assignments[id] = { id, ...a }; return id;
 }
+function giveMatModal(m) {
+  const g = matGivenNames(m.id);
+  openModal({ title: `Daj: ${m.title}`, submit: "Zapisz", body: `${g.length ? `<p class="small">Już dostali: <b>${esc(g.join(", "))}</b></p>` : ""}
+  <label class="f">Uczeń<select name="sid" required><option value="">Wybierz ucznia…</option>${activeStudents().map(s => `<option value="${s.id}">${givenTo(s.id, m.id).length ? "✓ " : ""}${esc(s.name)}</option>`).join("")}</select></label>
+  <label class="check"><input type="radio" name="how" value="app" checked> Zadaj w aplikacji – uczeń pobierze PDF bez odpowiedzi</label>
+  <label class="check"><input type="radio" name="how" value="lesson"> Dałam na lekcji – tylko zapisz, że go ma</label>
+  <label class="f">Termin (przy zadaniu w aplikacji)<input type="date" name="due" value="${iso(new Date(Date.now() + 6 * 864e5))}"></label>`,
+    onSubmit: async fd => { const sid = String(fd.get("sid") || ""); if (!sid) { toast("Wybierz ucznia."); return false; } const ok = await giveMaterial(sid, m, { due: String(fd.get("due") || ""), atLesson: fd.get("how") === "lesson" }); if (ok) toast("Zapisane"); return ok; } });
+}
+async function giveMaterial(sid, m, { due = "", atLesson = false } = {}) {
+  const was = givenTo(sid, m.id);
+  if (was.length && !(await ask(`${sName(sid)} dostał/a już „${m.title}” (${fmtDate((was[0].createdAt || "").slice(0, 10))}). Dać jeszcze raz?`, "Daj mimo to"))) return false;
+  const id = rid(); const now = new Date().toISOString();
+  const a = { studentId: sid, kind: "material", matId: m.id, title: m.title, category: m.category || "", body: m.body || "", vocab: splitKey(m.key), due: atLesson ? "" : due, atLesson, createdAt: now };
+  await B.set("assignments", id, a); S.data.assignments[id] = { id, ...a };
+  if (atLesson) { const r = { assignmentId: id, studentId: sid, kind: "material", doneAt: now, by: "teacher" }; await B.set("results", id, r); S.data.results[id] = r; }
+  return true;
+}
 async function submitAssign(f) {
   const sid = f.get("sid"), due = f.get("due");
-  if (f.get("kind") === "test") { if (!f.get("tid")) { toast("Wybierz test."); return false; } await addAssignment(sid, f.get("tid"), due); }
+  if (f.get("kind") === "test") {
+    if (!f.get("tid")) { toast("Wybierz test."); return false; }
+    const was = Object.values(S.data.assignments).find(a => a.studentId === sid && a.testId === f.get("tid"));
+    if (was && !(await ask(`${sName(sid)} dostał/a już ten test${was.due ? " (termin " + fmtDate(was.due) + ")" : ""}. Zadać jeszcze raz?`, "Zadaj mimo to"))) return false;
+    await addAssignment(sid, f.get("tid"), due);
+  }
+  else if (f.get("kind") === "material") {
+    const m = S.data.materials[f.get("mid")]; if (!m) { toast("Wybierz materiał."); return false; }
+    if (!(await giveMaterial(sid, m, { due }))) return false;
+  }
   else { const title = String(f.get("title") || "").trim(); if (!title) { toast("Wpisz tytuł zadania."); return false; } await addCustom(sid, title, String(f.get("desc") || "").trim(), due); }
   toast("Zadane"); return true;
 }
@@ -251,7 +292,7 @@ function renderStudent() {
   const as = Object.values(S.data.assignments).sort((a, b) => (a.due || "").localeCompare(b.due || ""));
   const todo = as.filter(a => !resultFor(a.id)), done = as.filter(a => resultFor(a.id)).reverse();
   const card = a => { const t = S.data.tests[a.testId]; const r = resultFor(a.id); const late = !r && a.due && a.due < today();
-    if (a.kind === "custom") return customCard(a, r, late);
+    if (ownKind(a)) return customCard(a, r, late);
     return `<button class="row" data-act="openTest" data-id="${a.id}"><span class="grow"><b>${esc(t ? t.title : "Test")}</b><span class="small muted">${t && t.topic ? esc(t.topic) + " · " : ""}${a.due ? "termin: " + fmtDate(a.due) : ""}</span></span>
     ${r ? `<span class="chip ${pct(r.score, r.max) >= 70 ? "ok" : pct(r.score, r.max) >= 50 ? "warn" : "bad"}">${r.score}/${r.max} · ${pct(r.score, r.max)}%</span>` : late ? '<span class="chip bad">po terminie</span>' : '<span class="chip mus">do zrobienia</span>'}</button>`; };
   const nx = nextLessons(S.data.lessons || [], 3); const b = balanceOf(S.data.lessons || [], S.data.payments || []);
@@ -470,12 +511,14 @@ function md(src) {
 function renderMaterialy() {
   const all = Object.values(S.data.materials).sort((a, b) => (a.no || 0) - (b.no || 0) || a.title.localeCompare(b.title, "pl"));
   const cat = S.matCat || "all";
-  const list = cat === "all" ? all : all.filter(m => m.category === cat);
+  let list = cat === "all" ? all : all.filter(m => m.category === cat);
+  const ns = S.matNot || ""; if (ns) list = list.filter(m => !givenTo(ns, m.id).length);
   const used = id => planStudents().filter(s => S.data.plans[s.id].lessons.some(l => (l.mats || []).some(k => "z" + pad(k) === id))).map(s => s.name);
   return `<div class="head"><div><p class="eyebrow">Wspólne dla wszystkich uczniów</p><h1>Materiały na lekcje</h1></div></div>
   <div class="pills"><button data-act="matCat" data-k="all" aria-pressed="${cat === "all"}">Wszystkie</button>${MAT_CATS.map(([k, l]) => `<button data-act="matCat" data-k="${k}" aria-pressed="${cat === k}">${l}</button>`).join("")}</div>
   ${searchBox("mat", "np. słowotwórstwo, Człowiek, Present Perfect, zestaw 01")}
-  <div class="list">${list.map(m => { const u = used(m.id); return `<button class="row" data-act="openMat" data-id="${m.id}" data-s-mat="${esc(matText(m))}"><span class="grow"><b>${esc(m.title)}</b><span class="small muted">${esc(m.topic || "")}${u.length ? " · w planie: " + esc(u.join(", ")) : ""}</span></span><span class="chip acc">${esc((MAT_CATS.find(c => c[0] === m.category) || ["", ""])[1])}</span></button>`; }).join("") || '<p class="empty">Brak materiałów w tej kategorii.</p>'}</div>
+  <label class="f" style="max-width:360px">Pokaż tylko te, których nie dostał/a<select id="matNot"><option value="">— wszyscy —</option>${activeStudents().map(s => `<option value="${s.id}" ${s.id === ns ? "selected" : ""}>${esc(s.name)}</option>`).join("")}</select></label>
+  <div class="list">${list.map(m => { const u = used(m.id); return `<button class="row" data-act="openMat" data-id="${m.id}" data-s-mat="${esc(matText(m))}"><span class="grow"><b>${esc(m.title)}</b><span class="small muted">${esc(m.topic || "")}${u.length ? " · w planie: " + esc(u.join(", ")) : ""}</span>${(() => { const g = matGivenNames(m.id); return g.length ? `<span class="small" style="color:var(--ok);font-weight:600">✓ dostali: ${esc(g.join(", "))}</span>` : ""; })()}</span><span class="chip acc">${esc((MAT_CATS.find(c => c[0] === m.category) || ["", ""])[1])}</span></button>`; }).join("") || '<p class="empty">Brak materiałów w tej kategorii.</p>'}</div>
   <form class="panel" id="importMat"><h2>Dodaj materiał z kodu</h2><p class="small muted">Wklej kod materiału, który przygotuje Ci Claude.</p><textarea name="json" rows="4" placeholder='{"id":"z02","title":"...","body":"..."}'></textarea><div><button class="btn primary" type="submit">Dodaj materiał</button></div></form>`;
 }
 
@@ -492,7 +535,7 @@ function renderMat() {
   const m = S.data.materials[S.view.id]; if (!m) { S.view = null; return render(); }
   root.innerHTML = frame(`<div class="head"><div><button class="btn sm ghost" data-act="back" style="justify-self:start">← Wróć</button><p class="eyebrow">${esc((MAT_CATS.find(c => c[0] === m.category) || ["", ""])[1])}</p><h1>${esc(m.title)}</h1></div>
   <div class="acts">${m.key ? `<button class="btn ${S.view.showKey ? "" : "mustard"}" data-act="toggleKey">${S.view.showKey ? "Ukryj klucz" : "Pokaż klucz odpowiedzi"}</button>` : ""}
-  <button class="btn primary" data-act="printMat" data-key="1">PDF z odpowiedziami</button><button class="btn" data-act="printMat" data-key="0">PDF bez odpowiedzi</button></div></div>
+  <button class="btn mustard" data-act="giveMat">Daj uczniowi</button><button class="btn primary" data-act="printMat" data-key="1">PDF z odpowiedziami</button><button class="btn" data-act="printMat" data-key="0">PDF bez odpowiedzi</button></div></div>
   <article class="md">${md(m.body)}</article>
   ${m.key && S.view.showKey ? `<section class="keybox md"><h2 style="border:0;margin:0;padding:0">Klucz odpowiedzi</h2>${md(m.key)}</section>` : ""}`);
 }
@@ -543,8 +586,8 @@ function renderZadania() {
   return `<div class="head"><div><p class="eyebrow">Testy i zadania własne</p><h1>Zadania domowe</h1></div></div>
   <form class="panel" id="assignForm" style="display:grid;gap:12px"><h2>Zadaj zadanie</h2>${assignFormHtml(null)}</form>
   <section class="panel"><h2>Wszystkie zadania</h2>${as.length ? `<div class="tablewrap"><table><thead><tr><th>Uczeń</th><th>Zadanie</th><th>Termin</th><th>Wynik</th><th></th></tr></thead><tbody>
-  ${as.map(a => { const r = S.data.results[a.id]; const s = S.data.students[a.studentId]; const cu = a.kind === "custom";
-    return `<tr class="${r && !cu ? "click" : ""}" ${r && !cu ? `data-act="viewResult" data-id="${a.id}"` : ""}><td>${esc(s ? s.name : "?")}</td><td style="white-space:normal">${esc(taskTitle(a))}${cu ? ' <span class="chip">własne</span>' : ""}</td><td>${fmtDate(a.due)}</td><td>${cu ? (r ? '<span class="chip ok">zrobione</span>' : `${a.due && a.due < today() ? '<span class="chip bad">po terminie</span> ' : ""}<button class="btn sm" data-act="doneCustom" data-id="${a.id}">Odhacz</button>`) : r ? `<span class="chip ${pct(r.score, r.max) >= 70 ? "ok" : pct(r.score, r.max) >= 50 ? "warn" : "bad"}">${r.score}/${r.max} · ${pct(r.score, r.max)}%</span>` : a.due < today() ? '<span class="chip bad">po terminie</span>' : '<span class="chip">czeka</span>'}</td>
+  ${as.map(a => { const r = S.data.results[a.id]; const s = S.data.students[a.studentId]; const cu = ownKind(a);
+    return `<tr class="${r && !cu ? "click" : ""}" ${r && !cu ? `data-act="viewResult" data-id="${a.id}"` : ""}><td>${esc(s ? s.name : "?")}</td><td style="white-space:normal">${esc(taskTitle(a))}${cu ? ` <span class="chip">${a.kind === "material" ? "materiał" : "własne"}</span>` : ""}</td><td>${fmtDate(a.due)}</td><td>${cu ? (r ? '<span class="chip ok">zrobione</span>' : `${a.due && a.due < today() ? '<span class="chip bad">po terminie</span> ' : ""}<button class="btn sm" data-act="doneCustom" data-id="${a.id}">Odhacz</button>`) : r ? `<span class="chip ${pct(r.score, r.max) >= 70 ? "ok" : pct(r.score, r.max) >= 50 ? "warn" : "bad"}">${r.score}/${r.max} · ${pct(r.score, r.max)}%</span>` : a.due < today() ? '<span class="chip bad">po terminie</span>' : '<span class="chip">czeka</span>'}</td>
     <td>${r ? "" : `<button class="btn sm ghost" data-act="delAssign" data-id="${a.id}">usuń</button>`}</td></tr>`; }).join("")}</tbody></table></div>` : '<p class="empty">Nic jeszcze nie zadano.</p>'}</section>`;
 }
 
@@ -865,7 +908,7 @@ function studentModal(s) {
     let inner = "";
     if (sec === "zad") inner = `<form class="panel" style="padding:14px 16px;display:grid;gap:12px" id="stAssign"><h3>Zadaj zadanie</h3>${assignFormHtml(s.id)}</form>
     <section><h3>Zadania ucznia</h3>${as.length ? `<div class="list">${as.map(a => { const r = S.data.results[a.id];
-      return `<div class="row"><span class="grow"><b>${esc(taskTitle(a))}</b><span class="small muted">${a.kind === "custom" ? "zadanie własne" : "test"}${a.due ? " · termin: " + fmtDate(a.due) : ""}</span></span>${r ? (a.kind === "custom" ? '<span class="chip ok">zrobione</span>' : `<span class="chip ${pct(r.score, r.max) >= 70 ? "ok" : pct(r.score, r.max) >= 50 ? "warn" : "bad"}">${r.score}/${r.max}</span>`) : (a.kind === "custom" ? `<button class="btn sm" type="button" data-mact="done" data-id="${a.id}">Odhacz</button>` : '<span class="chip">czeka</span>')}${r ? "" : `<button class="btn sm ghost" type="button" data-mact="del" data-id="${a.id}">usuń</button>`}</div>`; }).join("")}</div>` : '<p class="empty">Nic jeszcze nie zadano.</p>'}</section>`;
+      return `<div class="row"><span class="grow"><b>${esc(taskTitle(a))}</b><span class="small muted">${kindLabel(a)}${a.due ? " · termin: " + fmtDate(a.due) : ""}</span></span>${r ? (ownKind(a) ? '<span class="chip ok">zrobione</span>' : `<span class="chip ${pct(r.score, r.max) >= 70 ? "ok" : pct(r.score, r.max) >= 50 ? "warn" : "bad"}">${r.score}/${r.max}</span>`) : (ownKind(a) ? `<button class="btn sm" type="button" data-mact="done" data-id="${a.id}">Odhacz</button>` : '<span class="chip">czeka</span>')}${r ? "" : `<button class="btn sm ghost" type="button" data-mact="del" data-id="${a.id}">usuń</button>`}</div>`; }).join("")}</div>` : '<p class="empty">Nic jeszcze nie zadano.</p>'}</section>`;
     else if (sec === "lek") inner = `<div class="acts"><button class="btn sm primary" type="button" data-mact="newLesson">+ Lekcja</button></div>
     <section><h3>Najbliższe</h3>${up.length ? `<div class="list">${up.map(l => lessonRow(l, { showDate: true, showName: false })).join("")}</div>` : emptyP("Brak zaplanowanych lekcji.")}</section>
     <section><h3>Historia</h3>${past.length ? `<div class="list">${past.map(l => lessonRow(l, { showDate: true, showName: false })).join("")}</div>` : emptyP("Jeszcze nic.")}</section>`;
@@ -1064,7 +1107,9 @@ root.addEventListener("click", async e => {
     else if (act === "mathRemove") { if (!(await ask("Usunąć tę osobę z listy maturzystów z matematyki? Wpisane wyniki zostaną zapisane.", "Usuń z listy"))) return; await B.update("students", el.dataset.id, { mathMatura: false }); S.data.students[el.dataset.id].mathMatura = false; S.selM = "__all"; render(); }
     else if (act === "sel") { S.sel = el.dataset.id; S.showAll = false; render(); }
     else if (act === "toggleAll") { S.showAll = !S.showAll; render(); }
+    else if (act === "giveMat") { giveMatModal(S.data.materials[S.view.id]); }
     else if (act === "stOpen") { studentModal(S.data.students[el.dataset.id]); }
+    else if (act === "stuPdf") { const a = S.data.assignments[el.dataset.id]; if (a) printDoc({ title: a.title, category: a.category, body: a.body, extra: a.vocab ? `<div class="pbreak md">${md(a.vocab)}</div>` : "" }); }
     else if (act === "doneCustom") { await markCustomDone(el.dataset.id); toast(S.user.role === "admin" ? "Odhaczone" : "Super, zapisane!"); render(); }
     else if (act === "openTest") {
       const a = S.data.assignments[el.dataset.id]; const t = S.data.tests[a.testId]; if (!t) return toast("Nie znaleziono testu.");
@@ -1126,6 +1171,7 @@ root.addEventListener("change", async e => {
     } catch (err) { toast(errMsg(err)); }
     return;
   }
+  if (e.target.id === "matNot") { S.matNot = e.target.value; render(); return; }
   if (e.target.id === "upmonth") { S.upMonth = e.target.value; render(); return; }
   if (e.target.id !== "importFile" || !e.target.files[0]) return;
   const st = root.querySelector("#importStatus");
