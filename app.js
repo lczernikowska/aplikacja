@@ -148,7 +148,7 @@ async function loadAdmin() {
 async function loadStudent() {
   const sid = S.user.studentId;
   const [assignments, results, lessons, payments, settings, me, engP, mathP] = await Promise.all([B.list("assignments", ["studentId", sid]), B.list("results", ["studentId", sid]), B.list("lessons", ["studentId", sid]).catch(() => []), B.list("payments", ["studentId", sid]).catch(() => []), B.get("settings", "app").catch(() => null), B.get("students", sid).catch(() => null), B.get("engProgress", sid).catch(() => null), B.get("mathProgress", sid).catch(() => null)]);
-  const testIds = [...new Set(assignments.map(a => a.testId))];
+  const testIds = [...new Set(assignments.map(a => a.testId).filter(Boolean))];
   const tests = {};
   await Promise.all(testIds.map(async id => { const t = await B.get("tests", id); if (t) tests[id] = t; }));
   S.data = { assignments: Object.fromEntries(assignments.map(a => [a.id, a])), results: Object.fromEntries(results.map(r => [r.assignmentId || r.id, r])), tests, lessons, payments, settings, me, engP, mathP };
@@ -207,12 +207,71 @@ function studentResults() {
   }
   return out;
 }
+function customCard(a, r, late) {
+  return `<div class="row" style="align-items:flex-start"><span class="grow"><b>${esc(a.title || "Zadanie")}</b>${a.desc ? `<span class="small" style="white-space:pre-wrap;display:block;margin-top:4px">${esc(a.desc)}</span>` : ""}<span class="small muted">${a.due ? "termin: " + fmtDate(a.due) : ""}</span></span>
+  ${r ? '<span class="chip ok">zrobione</span>' : `${late ? '<span class="chip bad">po terminie</span>' : ""}<button class="btn sm primary" data-act="doneCustom" data-id="${a.id}">Zrobione ✓</button>`}</div>`;
+}
+const taskTitle = a => a.kind === "custom" ? (a.title || "Zadanie własne") : ((S.data.tests[a.testId] || {}).title || a.testId);
+function assignFormHtml(sid) {
+  const st = Object.values(S.data.students).sort((a, b) => a.name.localeCompare(b.name, "pl"));
+  const ts = Object.values(S.data.tests).sort((a, b) => a.title.localeCompare(b.title, "pl"));
+  return `<div class="frow">
+  ${sid ? `<input type="hidden" name="sid" value="${sid}">` : `<label class="f">Uczeń<select name="sid" required>${st.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}</select></label>`}
+  <label class="f">Rodzaj<select name="kind" data-kindsel><option value="custom">Zadanie własne</option><option value="test">Test z banku</option></select></label>
+  <label class="f">Termin<input type="date" name="due" value="${iso(new Date(Date.now() + 6 * 864e5))}"></label></div>
+  <div data-kind="custom" style="display:grid;gap:12px"><label class="f">Tytuł<input name="title" placeholder="np. Zadania maturalne z funkcji"></label>
+  <label class="f">Opis (opcjonalnie)<textarea name="desc" rows="3" placeholder="np. Arkusz maj 2023, zadania 5–12. Rozwiązania przynieś na lekcję."></textarea></label></div>
+  <div data-kind="test" hidden><label class="f">Test<select name="tid">${ts.map(t => `<option value="${t.id}">${esc(t.title)} (${esc(t.level || "")})</option>`).join("")}</select></label></div>
+  <div><button class="btn primary" type="submit">Zadaj</button></div>`;
+}
+async function addCustom(sid, title, desc, due) {
+  const id = rid(); const a = { studentId: sid, kind: "custom", title, desc: desc || "", due: due || "", createdAt: new Date().toISOString() };
+  await B.set("assignments", id, a); S.data.assignments[id] = { id, ...a }; return id;
+}
+async function submitAssign(f) {
+  const sid = f.get("sid"), due = f.get("due");
+  if (f.get("kind") === "test") { if (!f.get("tid")) { toast("Wybierz test."); return false; } await addAssignment(sid, f.get("tid"), due); }
+  else { const title = String(f.get("title") || "").trim(); if (!title) { toast("Wpisz tytuł zadania."); return false; } await addCustom(sid, title, String(f.get("desc") || "").trim(), due); }
+  toast("Zadane"); return true;
+}
+function studentModal(s) {
+  const ov = document.createElement("div"); ov.className = "ov";
+  const draw = () => {
+    const as = Object.values(S.data.assignments).filter(a => a.studentId === s.id).sort((a, b) => (b.due || "").localeCompare(a.due || ""));
+    ov.innerHTML = `<div class="modal wide" role="dialog" aria-modal="true"><header><h2>${esc(s.name)}</h2><button class="x" data-x>×</button></header>
+    <div class="mb"><form class="panel" style="padding:14px 16px;display:grid;gap:12px" id="stAssign"><h3>Zadaj zadanie</h3>${assignFormHtml(s.id)}</form>
+    <section><h3>Zadania ucznia</h3>${as.length ? `<div class="list">${as.map(a => { const r = S.data.results[a.id];
+      return `<div class="row"><span class="grow"><b>${esc(taskTitle(a))}</b><span class="small muted">${a.kind === "custom" ? "zadanie własne" : "test"}${a.due ? " · termin: " + fmtDate(a.due) : ""}</span></span>${r ? (a.kind === "custom" ? '<span class="chip ok">zrobione</span>' : `<span class="chip ${pct(r.score, r.max) >= 70 ? "ok" : pct(r.score, r.max) >= 50 ? "warn" : "bad"}">${r.score}/${r.max}</span>`) : (a.kind === "custom" ? `<button class="btn sm" data-mact="done" data-id="${a.id}">Odhacz</button>` : '<span class="chip">czeka</span>')}${r ? "" : `<button class="btn sm ghost" data-mact="del" data-id="${a.id}">usuń</button>`}</div>`; }).join("")}</div>` : '<p class="empty">Nic jeszcze nie zadano.</p>'}</section></div></div>`;
+    wireKind(ov);
+    ov.querySelector("#stAssign").addEventListener("submit", async e => { e.preventDefault(); UNDO.cur = null; try { if (await submitAssign(new FormData(e.target))) draw(); } catch (err) { toast(errMsg(err)); } });
+  };
+  ov.addEventListener("click", async e => {
+    if (e.target === ov || e.target.closest("[data-x]")) { ov.remove(); render(); return; }
+    const b = e.target.closest("[data-mact]"); if (!b) return; UNDO.cur = null;
+    try {
+      if (b.dataset.mact === "done") { await markCustomDone(b.dataset.id); draw(); }
+      else if (b.dataset.mact === "del" && await ask("Usunąć to zadanie?", "Usuń")) { await B.del("assignments", b.dataset.id); delete S.data.assignments[b.dataset.id]; draw(); }
+    } catch (err) { toast(errMsg(err)); }
+  });
+  document.body.appendChild(ov); draw();
+}
+function wireKind(scope) {
+  const sel = scope.querySelector("[data-kindsel]"); if (!sel) return;
+  const upd = () => scope.querySelectorAll("[data-kind]").forEach(d => { d.hidden = d.dataset.kind !== sel.value; });
+  sel.addEventListener("change", upd); upd();
+}
+async function markCustomDone(aid) {
+  const a = S.data.assignments[aid]; const sid = S.user.role === "admin" ? a.studentId : S.user.studentId;
+  const r = { assignmentId: aid, studentId: sid, kind: "custom", doneAt: new Date().toISOString(), by: S.user.role === "admin" ? "teacher" : "student" };
+  await B.set("results", aid, r); S.data.results[aid] = r;
+}
 function renderStudent() {
   if (!S.user.studentId) { root.innerHTML = frame(`<div class="notice bad">Twoje konto nie jest jeszcze przypisane do ucznia. Napisz do swojej korepetytorki.</div>`); return; }
   if (S.view && S.view.type === "test") return renderTest();
   const as = Object.values(S.data.assignments).sort((a, b) => (a.due || "").localeCompare(b.due || ""));
   const todo = as.filter(a => !resultFor(a.id)), done = as.filter(a => resultFor(a.id)).reverse();
   const card = a => { const t = S.data.tests[a.testId]; const r = resultFor(a.id); const late = !r && a.due && a.due < today();
+    if (a.kind === "custom") return customCard(a, r, late);
     return `<button class="row" data-act="openTest" data-id="${a.id}"><span class="grow"><b>${esc(t ? t.title : "Test")}</b><span class="small muted">${t && t.topic ? esc(t.topic) + " · " : ""}${a.due ? "termin: " + fmtDate(a.due) : ""}</span></span>
     ${r ? `<span class="chip ${pct(r.score, r.max) >= 70 ? "ok" : pct(r.score, r.max) >= 50 ? "warn" : "bad"}">${r.score}/${r.max} · ${pct(r.score, r.max)}%</span>` : late ? '<span class="chip bad">po terminie</span>' : '<span class="chip mus">do zrobienia</span>'}</button>`; };
   const nx = nextLessons(S.data.lessons || [], 3); const b = balanceOf(S.data.lessons || [], S.data.payments || []);
@@ -288,7 +347,7 @@ function renderMaturzysci() {
   if (!S.sel || !S.data.plans[S.sel]) S.sel = list[0].id;
   const s = S.data.students[S.sel], plan = S.data.plans[S.sel], st = S.data.planState[S.sel] || {};
   const doneN = plan.lessons.filter(l => (st.done || {})[l.n]).length;
-  const res = Object.values(S.data.results).filter(r => r.studentId === s.id);
+  const res = Object.values(S.data.results).filter(r => r.studentId === s.id && typeof r.score === "number");
   const avg = res.length ? Math.round(res.reduce((a, r) => a + pct(r.score, r.max), 0) / res.length) : null;
   const ni = nextIndex(plan, st);
   const shown = S.showAll ? plan.lessons.map((l, i) => [l, i]) : plan.lessons.map((l, i) => [l, i]).filter(([l, i]) => i >= Math.max(0, ni) - 1);
@@ -499,15 +558,11 @@ function renderZadania() {
   const st = Object.values(S.data.students).sort((a, b) => a.name.localeCompare(b.name, "pl"));
   const ts = Object.values(S.data.tests).sort((a, b) => a.title.localeCompare(b.title, "pl"));
   const as = Object.values(S.data.assignments).sort((a, b) => (b.due || "").localeCompare(a.due || ""));
-  return `<div class="head"><div><p class="eyebrow">Testy zadane uczniom</p><h1>Zadania domowe</h1></div></div>
-  <form class="panel" id="assignForm"><h2>Zadaj test</h2><div class="frow">
-  <label class="f">Uczeń<select name="sid" required>${st.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}</select></label>
-  <label class="f">Test<select name="tid" required>${ts.map(t => `<option value="${t.id}">${esc(t.title)} (${esc(t.level || "")})</option>`).join("")}</select></label>
-  <label class="f">Termin<input type="date" name="due" value="${iso(new Date(Date.now() + 6 * 864e5))}"></label>
-  <button class="btn primary" type="submit">Zadaj</button></div></form>
-  <section class="panel"><h2>Wszystkie zadania</h2>${as.length ? `<div class="tablewrap"><table><thead><tr><th>Uczeń</th><th>Test</th><th>Termin</th><th>Wynik</th><th></th></tr></thead><tbody>
-  ${as.map(a => { const r = S.data.results[a.id]; const t = S.data.tests[a.testId]; const s = S.data.students[a.studentId];
-    return `<tr class="${r ? "click" : ""}" ${r ? `data-act="viewResult" data-id="${a.id}"` : ""}><td>${esc(s ? s.name : "?")}</td><td>${esc(t ? t.title : a.testId)}</td><td>${fmtDate(a.due)}</td><td>${r ? `<span class="chip ${pct(r.score, r.max) >= 70 ? "ok" : pct(r.score, r.max) >= 50 ? "warn" : "bad"}">${r.score}/${r.max} · ${pct(r.score, r.max)}%</span>` : a.due < today() ? '<span class="chip bad">po terminie</span>' : '<span class="chip">czeka</span>'}</td>
+  return `<div class="head"><div><p class="eyebrow">Testy i zadania własne</p><h1>Zadania domowe</h1></div></div>
+  <form class="panel" id="assignForm" style="display:grid;gap:12px"><h2>Zadaj zadanie</h2>${assignFormHtml(null)}</form>
+  <section class="panel"><h2>Wszystkie zadania</h2>${as.length ? `<div class="tablewrap"><table><thead><tr><th>Uczeń</th><th>Zadanie</th><th>Termin</th><th>Wynik</th><th></th></tr></thead><tbody>
+  ${as.map(a => { const r = S.data.results[a.id]; const s = S.data.students[a.studentId]; const cu = a.kind === "custom";
+    return `<tr class="${r && !cu ? "click" : ""}" ${r && !cu ? `data-act="viewResult" data-id="${a.id}"` : ""}><td>${esc(s ? s.name : "?")}</td><td style="white-space:normal">${esc(taskTitle(a))}${cu ? ' <span class="chip">własne</span>' : ""}</td><td>${fmtDate(a.due)}</td><td>${cu ? (r ? '<span class="chip ok">zrobione</span>' : `${a.due && a.due < today() ? '<span class="chip bad">po terminie</span> ' : ""}<button class="btn sm" data-act="doneCustom" data-id="${a.id}">Odhacz</button>`) : r ? `<span class="chip ${pct(r.score, r.max) >= 70 ? "ok" : pct(r.score, r.max) >= 50 ? "warn" : "bad"}">${r.score}/${r.max} · ${pct(r.score, r.max)}%</span>` : a.due < today() ? '<span class="chip bad">po terminie</span>' : '<span class="chip">czeka</span>'}</td>
     <td>${r ? "" : `<button class="btn sm ghost" data-act="delAssign" data-id="${a.id}">usuń</button>`}</td></tr>`; }).join("")}</tbody></table></div>` : '<p class="empty">Nic jeszcze nie zadano.</p>'}</section>`;
 }
 
@@ -524,8 +579,10 @@ function renderTesty() {
 function renderUczniowie() {
   const st = Object.values(S.data.students).sort((a, b) => a.name.localeCompare(b.name, "pl"));
   return `<div class="head"><div><p class="eyebrow">Konta uczniów</p><h1>Uczniowie</h1></div></div>
-  <p class="muted small">Utwórz uczniowi konto, a aplikacja pokaże Ci gotową wiadomość z linkiem, e-mailem i hasłem do wysłania.</p>
+  <p class="muted small">Kliknij „Zadaj zadanie”, żeby dać uczniowi test albo własne zadanie (np. zadania maturalne z funkcji). Utwórz uczniowi konto, a aplikacja pokaże Ci gotową wiadomość z linkiem, e-mailem i hasłem do wysłania.</p>
   <div class="list">${st.map(s => `<div class="row"><span class="grow"><b>${esc(s.name)}</b><span class="small muted">${esc(s.subjectLabel || "angielski")}${s.level ? " · " + esc(s.level) : ""}${s.loginEmail ? " · konto: " + esc(s.loginEmail) : ""}</span></span>
+  ${(() => { const n = Object.values(S.data.assignments).filter(a => a.studentId === s.id && !S.data.results[a.id]).length; return n ? `<span class="chip">${n} do zrobienia</span>` : ""; })()}
+  <button class="btn sm primary" data-act="stOpen" data-id="${s.id}">Zadaj zadanie</button>
   ${s.loginEmail ? '<span class="chip ok">ma konto</span>' : `<button class="btn sm mustard" data-act="makeLogin" data-id="${s.id}">Utwórz konto</button>`}</div>`).join("")}</div>
   <form class="panel" id="addStudent"><h2>Dodaj ucznia</h2><div class="frow"><label class="f">Imię<input name="name" required></label>
   <label class="f">Przedmiot<select name="subj"><option>angielski</option><option>matematyka</option></select></label>
@@ -584,7 +641,7 @@ function render() {
   const t = S.tab;
   const html = t === "zadania" ? renderZadania() : t === "testy" ? renderTesty() : t === "uczniowie" ? renderUczniowie() : t === "ustawienia" ? renderUstawienia() : t === "matematyka" ? renderMatematyka() : t === "materialy" ? renderMaterialy() : t === "platnosci" ? renderPlatnosci() : renderMaturzysci();
   root.innerHTML = frame(html);
-  applyFilter("testy"); applyFilter("mat");
+  applyFilter("testy"); applyFilter("mat"); wireKind(root);
 }
 
 /* ---------------- akcje ---------------- */
@@ -616,6 +673,8 @@ root.addEventListener("click", async e => {
     else if (act === "mathRemove") { if (!(await ask("Usunąć tę osobę z listy maturzystów z matematyki? Wpisane wyniki zostaną zapisane.", "Usuń z listy"))) return; await B.update("students", el.dataset.id, { mathMatura: false }); S.data.students[el.dataset.id].mathMatura = false; S.selM = "__all"; render(); }
     else if (act === "sel") { S.sel = el.dataset.id; S.showAll = false; render(); }
     else if (act === "toggleAll") { S.showAll = !S.showAll; render(); }
+    else if (act === "stOpen") { studentModal(S.data.students[el.dataset.id]); }
+    else if (act === "doneCustom") { await markCustomDone(el.dataset.id); toast(S.user.role === "admin" ? "Odhaczone" : "Super, zapisane!"); render(); }
     else if (act === "openTest") {
       const a = S.data.assignments[el.dataset.id]; const t = S.data.tests[a.testId]; if (!t) return toast("Nie znaleziono testu.");
       const r = S.data.results[a.id];
@@ -701,7 +760,7 @@ root.addEventListener("submit", async e => {
   e.preventDefault(); const f = new FormData(e.target); const id = e.target.id;
   try {
     if (id === "loginForm") { try { await B.login(f.get("email").trim(), f.get("pw")); } catch (err) { renderLogin(errMsg(err)); } }
-    else if (id === "assignForm") { await addAssignment(f.get("sid"), f.get("tid"), f.get("due")); toast("Zadane"); render(); }
+    else if (id === "assignForm") { if (await submitAssign(f)) render(); }
     else if (id === "addStudent") { const sid = rid(); const d = { name: f.get("name").trim(), subjectLabel: f.get("subj"), level: f.get("level") }; await B.set("students", sid, d); S.data.students[sid] = { id: sid, ...d }; render(); }
     else if (id === "addPay") {
       const pid = rid(); const d = { studentId: S.selP, amount: Math.round(Number(f.get("amount")) * 100) / 100, date: f.get("date"), method: f.get("method"), note: "", createdAt: new Date().toISOString() };
