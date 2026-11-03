@@ -588,7 +588,7 @@ function renderUstawienia() {
   ${contactPanelHtml()}
   <section class="panel"><h2>Plany i czytanki startowe</h2><p class="small muted">Wczytuje uczniów-maturzystów, ich plany lekcji, czytanki i materiały na lekcje. Istniejące zapisy (zrobione lekcje, notatki, wyniki) zostają. Plany zostaną nadpisane wersją z pliku.</p>
   <div class="chips"><button class="btn primary" data-act="seed">Wczytaj plany, czytanki i materiały</button></div></section>
-  <section class="panel"><h2>Import z poprzedniej aplikacji</h2><p class="small muted">Wgraj plik <b>przeniesienie-ze-starej-aplikacji.json</b>. Przeniesie lekcje z kalendarza, wpłaty, zaległości i dane kontaktowe uczniów. <b>Uwaga:</b> lekcje i wpłaty w tej aplikacji zostaną zastąpione tymi z pliku, więc zrób to raz, zanim zaczniesz dodawać tu nowe lekcje.</p>
+  <section class="panel"><h2>Import z poprzedniej aplikacji</h2><p class="small muted">Wgraj plik <b>przeniesienie-ze-starej-aplikacji.json</b>. Przeniesie lekcje z kalendarza, wpłaty, zaległości i dane kontaktowe uczniów. Lekcje i wpłaty dodane już w tej aplikacji zostaną – import tylko uzupełnia dane ze starej.</p>
   <label class="f">Plik z danymi<input type="file" id="importFile" accept=".json,application/json"></label><p class="small muted" id="importStatus"></p></section>
   <section class="panel"><h2>Link dla uczniów</h2><pre class="copy">${esc(APP_URL)}</pre></section>
   ${B.demo ? `<section class="panel"><h2>Tryb podglądu</h2><p class="small muted">Dane zapisują się tylko w tej przeglądarce. Po połączeniu z Firebase znikną z aplikacji i zaczniesz na czysto.</p><div><button class="btn" data-act="wipe">Wyczyść dane podglądu</button></div></section>` : ""}`;
@@ -1140,8 +1140,9 @@ root.addEventListener("change", async e => {
       const entries = Object.entries(data[c] || {}); if (!entries.length) continue;
       await B.bulk(c, entries, n => { st.textContent = `Importuję ${label}: ${n}/${entries.length}…`; });
     }
+    if (data.remove) for (const [c, ids] of Object.entries(data.remove)) { let n = 0; for (const id of ids) if (S.data[c] && S.data[c][id]) { await B.del(c, id); st.textContent = `Usuwam nieaktualne: ${++n}…`; } }
     if (data.mirror) for (const c of ["lessons", "payments"]) {
-      const keep = new Set(Object.keys(data[c] || {})); const gone = Object.keys(S.data[c] || {}).filter(id => !keep.has(id));
+      const keep = new Set(Object.keys(data[c] || {})); const cut = data.exportedAt || ""; const gone = Object.entries(S.data[c] || {}).filter(([id, x]) => !keep.has(id) && !(x.createdAt && cut && x.createdAt > cut)).map(([id]) => id);
       let n = 0; for (const id of gone) { await B.del(c, id); st.textContent = `Usuwam nieaktualne (${c}): ${++n}/${gone.length}…`; }
     }
     await loadAdmin(); render();
