@@ -407,7 +407,7 @@ function qHtml(q, n, answers, mode) {
   };
   const imgs = (q.imgs || []).map(u => `<img class="qimg" src="${esc(u)}" alt="${esc(q.label || "Zadanie")}" loading="lazy">`).join("");
   const label = q.label || `Zadanie ${n + 1}.`;
-  const intro = q.intro ? `<div class="notice small">${esc(q.intro)}</div>` : "";
+  const intro = (q.intro ? `<div class="notice small">${esc(q.intro)}</div>` : "") + (q.tr ? `<details class="trbox" ${mode === "take" ? "open" : ""}><summary>📄 Tekst nagrania (czytasz zamiast słuchać)</summary>${q.tr.map(u => `<img class="qimg" src="${esc(u)}" alt="Tekst nagrania" loading="lazy">`).join("")}</details>` : "");
   const rv = (S.view || {}).result || {}; const isAdmin = S.user && S.user.role === "admin";
   if (q.type === "text") {
     const ov = (rv.over || {})[n]; const pts = qScore(q, mine, ov);
