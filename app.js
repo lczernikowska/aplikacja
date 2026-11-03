@@ -1066,9 +1066,33 @@ async function korepAct(act, el) {
 }
 
 /* ---------------- render ---------------- */
+/* zapamiętanie miejsca w adresie strony – po odświeżeniu wraca tam, gdzie byłaś */
+function saveLoc() {
+  if (!S.user || S.user.role !== "admin") return;
+  let h = S.tab;
+  if (S.view && S.view.type === "mat") h = "materialy/" + S.view.id;
+  else if (S.tab === "platnosci" && S.selP) h += "/" + S.selP;
+  else if (S.tab === "matematyka" && S.selM && S.selM !== "__all") h += "/" + S.selM;
+  else if (S.tab === "maturzysci" && S.sel) h += "/" + S.sel;
+  else if (S.tab === "kalendarz" && S.calAnchor) h += "/" + (S.calMode || "week") + "/" + S.calAnchor;
+  else if (S.tab === "zgory" && S.upMonth) h += "/" + S.upMonth;
+  try { if (location.hash !== "#" + h) history.replaceState(null, "", "#" + h); } catch (e) { }
+}
+function loadLoc() {
+  const [tab, a, b] = decodeURIComponent(location.hash.slice(1)).split("/");
+  if (!tab || !ADMIN_TABS.some(t => t[0] === tab)) return;
+  S.tab = tab;
+  if (tab === "materialy" && a && S.data.materials[a]) S.view = { type: "mat", id: a, showKey: false, from: "materialy" };
+  else if (tab === "platnosci" && a) S.selP = a;
+  else if (tab === "matematyka" && a) S.selM = a;
+  else if (tab === "maturzysci" && a) S.sel = a;
+  else if (tab === "kalendarz" && a && b) { S.calMode = a; S.calAnchor = b; }
+  else if (tab === "zgory" && a) S.upMonth = a;
+}
 function render() {
   if (!S.user) return renderLogin();
   if (S.user.role !== "admin") return renderStudent();
+  saveLoc();
   if (S.view && S.view.type === "test") return renderTest();
   if (S.view && S.view.type === "mat") return renderMat();
   const t = S.tab;
@@ -1268,7 +1292,7 @@ async function undoLast() {
   catch (e) { root.innerHTML = `<div class="wrap"><div class="notice bad" style="margin-top:40px">Nie udało się połączyć z Firebase. Sprawdź plik config.js. (${esc(e.message)})</div></div>`; return; }
   B.onAuth(async u => {
     S.user = u; S.view = null; S.data = null; UNDO.stack = []; UNDO.cur = null; undoBtn();
-    if (u) { root.innerHTML = frame('<p class="empty">Ładowanie…</p>'); try { if (u.role === "admin") { await loadAdmin(); await autoComplete(); } else await loadStudent(); } catch (e) { root.innerHTML = frame(`<div class="notice bad">${esc(errMsg(e))}</div>`); return; } }
+    if (u) { root.innerHTML = frame('<p class="empty">Ładowanie…</p>'); try { if (u.role === "admin") { await loadAdmin(); await autoComplete(); loadLoc(); } else await loadStudent(); } catch (e) { root.innerHTML = frame(`<div class="notice bad">${esc(errMsg(e))}</div>`); return; } }
     render();
   });
   if ("serviceWorker" in navigator && location.protocol === "https:" && !DEMO) navigator.serviceWorker.register("sw.js").catch(() => { });
