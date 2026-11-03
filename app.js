@@ -232,7 +232,8 @@ function assignFormHtml(sid) {
   return `<div class="frow">
   ${sid ? `<input type="hidden" name="sid" value="${sid}">` : `<label class="f">Uczeń<select name="sid" required>${st.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}</select></label>`}
   <label class="f">Rodzaj<select name="kind" data-kindsel><option value="custom">Zadanie własne</option><option value="material">Materiał (zestaw PDF)</option><option value="test">Test z banku</option></select></label>
-  <label class="f">Termin<input type="date" name="due" value="${iso(new Date(Date.now() + 6 * 864e5))}"></label></div>
+  <label class="f">Termin wykonania<input type="date" name="due" value="${defaultDue(sid)}" data-due></label></div>
+  <div class="acts" data-duebtns><span class="small muted">Termin:</span><button type="button" class="btn sm ghost" data-due-set="next">do następnej lekcji</button><button type="button" class="btn sm ghost" data-due-set="week">za tydzień</button><button type="button" class="btn sm ghost" data-due-set="none">bez terminu</button><span class="small muted" data-due-info>${dueInfo(sid)}</span></div>
   <div data-kind="custom" style="display:grid;gap:12px"><label class="f">Tytuł<input name="title" placeholder="np. Zadania maturalne z funkcji"></label>
   <label class="f">Opis (opcjonalnie)<textarea name="desc" rows="3" placeholder="np. Arkusz maj 2023, zadania 5–12. Rozwiązania przynieś na lekcję."></textarea></label></div>
   <div data-kind="material" hidden><label class="f">Materiał<select name="mid">${Object.values(S.data.materials || {}).sort((a, b) => (a.no || 0) - (b.no || 0)).map(m => { const g = sid ? givenTo(sid, m.id) : []; return `<option value="${m.id}">${g.length ? "✓ " : ""}${esc(m.title)}${g.length ? " (już dostał/a)" : ""}</option>`; }).join("")}</select></label><span class="small muted">Uczeń zobaczy przycisk „Pobierz PDF” – zestaw bez odpowiedzi, ze słówkami na końcu.</span></div>
@@ -249,7 +250,9 @@ function giveMatModal(m) {
   <label class="f">Uczeń<select name="sid" required><option value="">Wybierz ucznia…</option>${activeStudents().map(s => `<option value="${s.id}">${givenTo(s.id, m.id).length ? "✓ " : ""}${esc(s.name)}</option>`).join("")}</select></label>
   <label class="check"><input type="radio" name="how" value="app" checked> Zadaj w aplikacji – uczeń pobierze PDF bez odpowiedzi</label>
   <label class="check"><input type="radio" name="how" value="lesson"> Dałam na lekcji – tylko zapisz, że go ma</label>
-  <label class="f">Termin (przy zadaniu w aplikacji)<input type="date" name="due" value="${iso(new Date(Date.now() + 6 * 864e5))}"></label>`,
+  <label class="f">Termin wykonania (przy zadaniu w aplikacji)<input type="date" name="due" value="${weekAhead()}" data-due></label>
+  <div class="acts"><span class="small muted">Termin:</span><button type="button" class="btn sm ghost" data-due-set="next">do następnej lekcji</button><button type="button" class="btn sm ghost" data-due-set="week">za tydzień</button><button type="button" class="btn sm ghost" data-due-set="none">bez terminu</button><span class="small muted" data-due-info></span></div>`,
+    onMount: (f, ov) => wireDue(ov),
     onSubmit: async fd => { const sid = String(fd.get("sid") || ""); if (!sid) { toast("Wybierz ucznia."); return false; } const ok = await giveMaterial(sid, m, { due: String(fd.get("due") || ""), atLesson: fd.get("how") === "lesson" }); if (ok) toast("Zapisane"); return ok; } });
 }
 async function giveMaterial(sid, m, { due = "", atLesson = false } = {}) {
@@ -276,7 +279,20 @@ async function submitAssign(f) {
   else { const title = String(f.get("title") || "").trim(); if (!title) { toast("Wpisz tytuł zadania."); return false; } await addCustom(sid, title, String(f.get("desc") || "").trim(), due); }
   toast("Zadane"); return true;
 }
+function nextLessonDate(sid) { if (!sid) return null; const t = today(); const l = Object.values(S.data.lessons || {}).filter(x => x.studentId === sid && x.status === "planned" && x.date > t).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))[0]; return l ? l.date : null; }
+const weekAhead = () => iso(new Date(Date.now() + 7 * 864e5));
+function defaultDue(sid) { return nextLessonDate(sid) || weekAhead(); }
+function dueInfo(sid) { const d = nextLessonDate(sid); return d ? `najbliższa lekcja: ${fmtDate(d)}` : (sid ? "brak zaplanowanej lekcji" : ""); }
+function wireDue(scope) {
+  scope.querySelectorAll("form").forEach(f => {
+    const due = f.querySelector("[data-due]"); if (!due || f.dataset.dueWired) return; f.dataset.dueWired = "1";
+    const sidOf = () => (f.querySelector("[name=sid]") || {}).value;
+    f.addEventListener("click", e => { const b = e.target.closest("[data-due-set]"); if (!b) return; const k = b.dataset.dueSet; due.value = k === "next" ? (nextLessonDate(sidOf()) || weekAhead()) : k === "week" ? weekAhead() : ""; if (k === "next" && !nextLessonDate(sidOf())) toast("Brak zaplanowanej lekcji – ustawiłam termin za tydzień."); });
+    const sel = f.querySelector("select[name=sid]"); if (sel) sel.addEventListener("change", () => { due.value = defaultDue(sel.value); const i = f.querySelector("[data-due-info]"); if (i) i.textContent = dueInfo(sel.value); });
+  });
+}
 function wireKind(scope) {
+  wireDue(scope);
   const sel = scope.querySelector("[data-kindsel]"); if (!sel) return;
   const upd = () => scope.querySelectorAll("[data-kind]").forEach(d => { d.hidden = d.dataset.kind !== sel.value; });
   sel.addEventListener("change", upd); upd();
@@ -932,7 +948,7 @@ function studentModal(s) {
     let inner = "";
     if (sec === "zad") inner = `<form class="panel" style="padding:14px 16px;display:grid;gap:12px" id="stAssign"><h3>Zadaj zadanie</h3>${assignFormHtml(s.id)}</form>
     <section><h3>Zadania ucznia</h3>${as.length ? `<div class="list">${as.map(a => { const r = S.data.results[a.id];
-      return `<div class="row"><span class="grow"><b>${esc(taskTitle(a))}</b><span class="small muted">${kindLabel(a)}${a.due ? " · termin: " + fmtDate(a.due) : ""}</span></span>${r ? (ownKind(a) ? '<span class="chip ok">zrobione</span>' : `<span class="chip ${pct(r.score, r.max) >= 70 ? "ok" : pct(r.score, r.max) >= 50 ? "warn" : "bad"}">${r.score}/${r.max}</span>`) : (ownKind(a) ? `<button class="btn sm" type="button" data-mact="done" data-id="${a.id}">Odhacz</button>` : '<span class="chip">czeka</span>')}${r ? "" : `<button class="btn sm ghost" type="button" data-mact="del" data-id="${a.id}">usuń</button>`}</div>`; }).join("")}</div>` : '<p class="empty">Nic jeszcze nie zadano.</p>'}</section>`;
+      return `<div class="row"><span class="grow"><b>${esc(taskTitle(a))}</b><span class="small muted">${kindLabel(a)}${a.due ? " · termin: " + fmtDate(a.due) : ""}</span></span>${r ? (ownKind(a) ? '<span class="chip ok">zrobione</span>' : `<span class="chip ${pct(r.score, r.max) >= 70 ? "ok" : pct(r.score, r.max) >= 50 ? "warn" : "bad"}">${r.score}/${r.max}</span>`) : (ownKind(a) ? `<button class="btn sm" type="button" data-mact="done" data-id="${a.id}">Odhacz</button>` : '<span class="chip">czeka</span>')}${r ? "" : `<input type="date" value="${esc(a.due || "")}" data-mdue="${a.id}" aria-label="Termin" style="width:auto;padding:5px 8px;font-size:13px"><button class="btn sm ghost" type="button" data-mact="del" data-id="${a.id}">usuń</button>`}</div>`; }).join("")}</div>` : '<p class="empty">Nic jeszcze nie zadano.</p>'}</section>`;
     else if (sec === "lek") inner = `<div class="acts"><button class="btn sm primary" type="button" data-mact="newLesson">+ Lekcja</button></div>
     <section><h3>Najbliższe</h3>${up.length ? `<div class="list">${up.map(l => lessonRow(l, { showDate: true, showName: false })).join("")}</div>` : emptyP("Brak zaplanowanych lekcji.")}</section>
     <section><h3>Historia</h3>${past.length ? `<div class="list">${past.map(l => lessonRow(l, { showDate: true, showName: false })).join("")}</div>` : emptyP("Jeszcze nic.")}</section>`;
@@ -945,6 +961,7 @@ function studentModal(s) {
     wireKind(ov);
     const fa = ov.querySelector("#stAssign"); if (fa) fa.addEventListener("submit", async e => { e.preventDefault(); try { if (await submitAssign(new FormData(e.target))) draw(); } catch (err) { toast(errMsg(err)); } });
   };
+  ov.addEventListener("change", async e => { const d = e.target.closest("[data-mdue]"); if (!d) return; try { await patchDoc("assignments", d.dataset.mdue, { due: d.value }); toast(d.value ? "Termin zmieniony: " + fmtDate(d.value) : "Usunięto termin"); draw(); } catch (err) { toast(errMsg(err)); } });
   ov.addEventListener("click", async e => {
     if (e.target === ov || e.target.closest("[data-x]")) { ov.remove(); render(); return; }
     const sb = e.target.closest("[data-msec]"); if (sb) { S.stSec = sb.dataset.msec; draw(); return; }
