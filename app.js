@@ -181,7 +181,8 @@ const ADMIN_TABS = [["dzis", "Dziś"], ["kalendarz", "Kalendarz"], ["uczniowie",
 function frame(inner) {
   const u = S.user;
   const tabs = u && u.role === "admin" && !S.view ? `<nav class="tabs">${ADMIN_TABS.map(([k, l]) => `<button data-act="tab" data-k="${k}" ${S.tab === k ? 'aria-current="page"' : ""}>${l}</button>`).join("")}</nav>` : "";
-  return `<header class="top"><div class="wrap topin ${tabs ? "" : "solo"}"><span class="brand"><span class="dot"></span>PEWNY EGZAMIN</span>
+  const pv = S.preview ? `<div class="pvbar"><span>👁 Podgląd: tak widzi aplikację <b>${esc(S.user.name)}</b>. Nic tu nie zapisuje się na koncie ucznia.</span><button class="btn sm" data-act="endPreview">← Wróć do swojego widoku</button></div>` : "";
+  return `${pv}<header class="top"><div class="wrap topin ${tabs ? "" : "solo"}"><span class="brand"><span class="dot"></span>PEWNY EGZAMIN</span>
   ${u ? `<span class="who">${esc(u.name || u.email)}${B.demo ? ' <span class="chip mus">podgląd</span>' : ""}<button class="btn sm ghost" data-act="logout">Wyloguj</button></span>` : ""}${tabs}</div></header>
   <main class="wrap">${inner}</main>`;
 }
@@ -337,10 +338,23 @@ function wireKind(scope) {
   sel.addEventListener("change", upd); upd();
 }
 async function markCustomDone(aid) {
+  if (S.preview) { toast("To tylko podgląd – nic nie zapisuję."); throw new Error("Podgląd – bez zapisu."); }
   const a = S.data.assignments[aid]; const sid = S.user.role === "admin" ? a.studentId : S.user.studentId;
   const r = { assignmentId: aid, studentId: sid, kind: "custom", doneAt: new Date().toISOString(), by: S.user.role === "admin" ? "teacher" : "student" };
   await B.set("results", aid, r); S.data.results[aid] = r;
 }
+/* ---------- podgląd widoku ucznia (dla Laury) ---------- */
+function previewAs(sid) {
+  const st = S.data.students[sid]; if (!st) return;
+  const A = Object.values(S.data.assignments).filter(a => a.studentId === sid);
+  const tests = {}; for (const a of A) if (a.testId && S.data.tests[a.testId]) { const t = S.data.tests[a.testId]; tests[a.testId] = { ...(t._pub || t), id: a.testId }; }
+  const results = {}; for (const r of Object.values(S.data.results)) if (r.studentId === sid) results[r.assignmentId || r.id] = r;
+  S.preview = { user: S.user, data: S.data, tab: S.tab, view: S.view };
+  S.data = { assignments: Object.fromEntries(A.map(a => [a.id, a])), results, tests, lessons: Object.values(S.data.lessons).filter(l => l.studentId === sid), payments: Object.values(S.data.payments).filter(p => p.studentId === sid), settings: S.data.settings, me: st, engP: S.data.engProgress[sid] || null, mathP: S.data.mathProgress[sid] || null };
+  S.user = { role: "student", studentId: sid, name: st.name, uid: "preview" }; S.view = null;
+  undoBtn(); render(); window.scrollTo(0, 0);
+}
+function endPreview() { const p = S.preview; if (!p) return; S.user = p.user; S.data = p.data; S.tab = p.tab; S.view = p.view; S.preview = null; undoBtn(); render(); }
 function renderStudent() {
   if (!S.user.studentId) { root.innerHTML = frame(`<div class="notice bad">Twoje konto nie jest jeszcze przypisane do ucznia. Napisz do swojej korepetytorki.</div>`); return; }
   if (S.view && S.view.type === "test") return renderTest();
@@ -475,6 +489,7 @@ function renderTest() {
   ${top}<div class="sheet">${t.instructions ? `<p class="muted">${esc(t.instructions)}</p>` : ""}${testBody(t, v.answers, v.mode)}</div>${bottom}`);
 }
 async function submitTest() {
+  if (S.preview) { toast("To tylko podgląd – test nie zostanie oddany."); return; }
   const v = S.view; const t = v.test;
   const need = t.questions.filter(q => q.type !== "open").length; const got = t.questions.filter((q, n) => q.type !== "open" && v.answers[n] !== undefined && String(v.answers[n]).trim() !== "" && !(q.type === "multi" && !(v.answers[n] || []).length)).length;
   if (got < need && !(await ask("Nie odpowiedziałeś/aś na wszystkie pytania. Oddać mimo to?", "Oddaj"))) return;
@@ -1050,7 +1065,7 @@ function studentModal(s) {
     else if (sec === "wpl") inner = `<div class="stats">${balanceBlock(b)}</div><div class="acts"><button class="btn sm primary" type="button" data-mact="newPayment">+ Wpłata</button><button class="btn sm" type="button" data-mact="newCharge">+ Zaległość</button></div>
     ${P.length ? `<div class="list">${P.map(p => `<div class="row"><span class="grow"><b>${isCharge(p) ? "zaległość " : ""}${zl(Number(p.amount) || 0)}</b><span class="small muted">${esc(fmtDate(p.date))}${p.method ? " · " + esc(p.method) : ""}${p.note ? " · " + esc(p.note) : ""}</span></span>${isCharge(p) ? '<span class="chip warn">doliczone</span>' : '<span class="chip ok">wpłata</span>'}<button class="btn sm ghost" type="button" data-mact="delPay" data-id="${p.id}">usuń</button></div>`).join("")}</div>` : emptyP("Brak wpłat.")}`;
     else inner = `<dl class="kv">${[["Przedmioty", subjectsOf(s).map(x => `${SUBJ[x.subject]} (${LVL[x.level] || ""}) · ${zl(Number(x.rate) || 0)}`).join(", ")], ["Klasa", s.klasa], ["Cel", s.goal], ["Telefon", s.phone], ["E-mail", s.email], ["Telefon rodzica", s.parentPhone], ["E-mail rodzica", s.parentEmail], ["Konto w aplikacji", s.loginEmail || "brak"], ["Notatki", s.notes]].filter(x => x[1]).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>
-    <div class="acts"><button class="btn sm primary" type="button" data-mact="edit">Edytuj dane</button>${s.loginEmail ? "" : `<button class="btn sm mustard" type="button" data-mact="login">Utwórz konto w aplikacji</button>`}</div>`;
+    <div class="acts"><button class="btn sm primary" type="button" data-mact="edit">Edytuj dane</button><button class="btn sm" type="button" data-mact="preview">👁 Zobacz jak uczeń</button>${s.loginEmail ? "" : `<button class="btn sm mustard" type="button" data-mact="login">Utwórz konto w aplikacji</button>`}</div>`;
     ov.innerHTML = `<div class="modal wide" role="dialog" aria-modal="true"><header><div><h2>${esc(s.name)}</h2><span class="small muted">${esc(subjectsOf(s).map(x => SUBJ[x.subject]).join(" + "))}${s.klasa ? " · " + esc(s.klasa) : ""} · <span style="color:var(--${b.bal > 0 ? "bad" : "ok"})">${b.bal > 0 ? "do zapłaty " + zl(b.bal) : b.bal < 0 ? "nadpłata " + zl(-b.bal) : "opłacone"}</span></span></div><button class="x" data-x aria-label="Zamknij">×</button></header>
     <div class="mb"><div class="subtabs" role="tablist">${tabsH}</div>${inner}</div></div>`;
     wireKind(ov);
@@ -1068,6 +1083,7 @@ function studentModal(s) {
       if (k === "done") { await markCustomDone(b.dataset.id); draw(); }
       else if (k === "del") { if (await ask("Usunąć to zadanie?", "Usuń")) { await delDoc("assignments", b.dataset.id); draw(); } }
       else if (k === "edit") { ov.remove(); studentForm(s.id); }
+      else if (k === "preview") { ov.remove(); previewAs(s.id); }
       else if (k === "login") { ov.remove(); loginModal(s); }
       else if (k === "newLesson") { ov.remove(); lessonForm(null, { sid: s.id }); }
       else if (k === "newPayment") { ov.remove(); paymentForm(s.id); }
@@ -1247,6 +1263,8 @@ root.addEventListener("click", async e => {
   const el = e.target.closest("[data-act]"); if (!el) return;
   const act = el.dataset.act;
   try {
+    if (act === "endPreview") { endPreview(); return; }
+    if (act === "logout" && S.preview) { endPreview(); return; }
     if (S.user && S.user.role === "admin" && await korepAct(act, el)) return;
     if (act === "tab") { S.tab = el.dataset.k; S.view = null; render(); window.scrollTo(0, 0); }
     else if (act === "logout") { S.view = null; await B.logout(); }
