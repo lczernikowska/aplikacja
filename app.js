@@ -122,10 +122,11 @@ function errMsg(e) {
 const BAL_FROM = CFG.balanceFrom || "2026-11-01";
 const SUBJ = { mat: "matematyka", ang: "angielski" };
 const zl = n => (Math.round(n * 100) / 100).toLocaleString("pl-PL", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + " zł";
-const effStatus = l => l.status;
+// jak w aplikacji dla korepetytorki: po północy zaplanowana lekcja z minionego dnia liczy się jako odbyta
+const effStatus = l => l.status === "planned" && l.date < today() ? "done" : l.status;
 const isCharge = p => p.kind === "charge";
 function balanceOf(lessons, payments) {
-  const done = lessons.filter(l => l.status === "done");
+  const done = lessons.filter(l => effStatus(l) === "done");
   const charges = payments.filter(isCharge), pays = payments.filter(p => !isCharge(p));
   const due = done.reduce((a, l) => a + (Number(l.price) || 0), 0) + charges.reduce((a, c) => a + (Number(c.amount) || 0), 0), paid = pays.reduce((a, p) => a + (Number(p.amount) || 0), 0);
   return { done, charges, pays, due, paid, bal: Math.round((due - paid) * 100) / 100 };
@@ -349,6 +350,7 @@ async function saveEng(sid, k, patch) {
 /* ---------------- Laura: matura z matematyki (wyniki z działów) ---------------- */
 const MATH_TOPICS = ["Liczby", "Logarytmy", "Procenty", "Wartość bezwzględna", "Równania i nierówności", "Funkcja liniowa", "Równanie prostej", "Układ równań liniowych", "Funkcja kwadratowa", "Wielomiany i wyrażenia algebraiczne", "Funkcje i wykresy", "Ciągi", "Trygonometria", "Planimetria", "Stereometria", "Geometria analityczna", "Statystyka", "Kombinatoryka", "Rachunek prawdopodobieństwa", "Dowody algebraiczne"];
 const MATH_DEFAULT = ["1755f4c6-dab0-4b23-85db-fde8d315a6a6", "42c91f5f-fdf2-40f1-a126-5dd12ecbfb10", "d746ae16-319c-41cc-86d1-7580ed07586b", "c30636f9-f61c-41b7-925f-0aa9c2c74a46", "maja", "dc67cb6a-8864-4384-ab7a-dd2df65a7bc1", "f1759b5c-8e20-4498-8b8a-c6d78ce16c3b"];
+const MATH_SHORT = ["Liczby", "Log.", "Proc.", "|x|", "Równ./nier.", "F. lin.", "Prosta", "Układy", "F. kw.", "Wielom.", "Funkcje", "Ciągi", "Tryg.", "Planim.", "Stereo.", "Geom. an.", "Stat.", "Komb.", "Prawd.", "Dowody"];
 const MATH_KEYS = ["t01", "t02", "t03", "t20", "t04", "t05", "t06", "t07", "t08", "t09", "t10", "t11", "t12", "t13", "t14", "t15", "t16", "t17", "t18", "t19"];
 const tkey = i => MATH_KEYS[i];
 const pctChip = p => p === undefined || p === null || p === "" ? "" : `<span class="chip ${p >= 70 ? "ok" : p >= 50 ? "warn" : "bad"}">${p}%</span>`;
@@ -372,7 +374,7 @@ function renderMatematyka() {
   if (S.selM === "__all") {
     const rows = list.map(s => { const t = (S.data.mathProgress[s.id] || {}).topics || {}; const st = mathStats(s.id);
       return `<tr><td><button class="btn sm ghost" data-act="selM" data-id="${s.id}">${esc(s.name)}</button></td><td>${st.done}/${MATH_TOPICS.length}</td><td>${st.avg === null ? "–" : pctChip(st.avg)}</td>${MATH_TOPICS.map((_, i) => { const x = t[tkey(i)]; return `<td>${x && x.done ? (typeof x.pct === "number" ? pctChip(x.pct) : '<span class="chip ok">✓</span>') : '<span class="muted">–</span>'}</td>`; }).join("")}</tr>`; }).join("");
-    return head + pills + `<section class="panel"><p class="small muted">Kliknij imię, żeby wpisać wyniki. Zielone ≥ 70%, żółte 50–69%, czerwone &lt; 50%.</p><div class="tablewrap"><table><thead><tr><th>Uczeń</th><th>Działy</th><th>Średnia</th>${MATH_TOPICS.map(n => `<th title="${esc(n)}">${esc(n)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div></section>` + `<section class="panel">${others.length ? addForm : ""}</section>`;
+    return head + pills + `<section class="panel"><p class="small muted">Kliknij imię, żeby wpisać wyniki. Po najechaniu na skrót zobaczysz pełną nazwę działu. Zielone ≥ 70%, żółte 50–69%, czerwone &lt; 50%.</p><div class="tablewrap"><table class="compact"><thead><tr><th>Uczeń</th><th>Działy</th><th>Średnia</th>${MATH_TOPICS.map((n, i) => `<th title="${i + 1}. ${esc(n)}">${esc(MATH_SHORT[i])}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div></section>` + `<section class="panel">${others.length ? addForm : ""}</section>`;
   }
   const s = S.data.students[S.selM]; const t = (S.data.mathProgress[s.id] || {}).topics || {}; const st = mathStats(s.id);
   const items = MATH_TOPICS.map((n, i) => { const k = tkey(i); const x = t[k] || {};
@@ -486,7 +488,7 @@ function renderPlatnosci() {
     <form class="panel" id="addPay"><h2>Dodaj wpłatę</h2><div class="frow"><label class="f">Kwota (zł)<input type="number" name="amount" min="1" step="0.01" required></label><label class="f">Data<input type="date" name="date" value="${today()}" required></label><label class="f">Sposób<select name="method"><option>przelew</option><option>gotówka</option><option>BLIK</option></select></label><button class="btn primary" type="submit">Dodaj</button></div></form>
     <section class="panel"><h2>Wpłaty</h2>${r.b.pays.length ? r.b.pays.sort((a, b) => (b.date || "").localeCompare(a.date || "")).map(p => `<div class="row"><span class="grow"><b>${zl(Number(p.amount) || 0)}</b><span class="small muted">${esc(fmtDate(p.date))} · ${esc(p.method || "")}</span></span><button class="btn sm ghost" data-act="delPay" data-id="${p.id}">usuń</button></div>`).join("") : '<p class="empty">Brak wpłat.</p>'}</section>
     <section class="panel"><h2>Najbliższe lekcje</h2><div class="list">${up.map(lrow).join("") || '<p class="empty">Brak.</p>'}</div></section>
-    <section class="panel"><h2>Ostatnie lekcje</h2><p class="small muted">Do zapłaty liczą się tylko lekcje oznaczone jako odbyte – tak jak w aplikacji dla korepetytorki.</p><div class="list">${past.reverse().map(lrow).join("") || '<p class="empty">Jeszcze żadnych.</p>'}</div></section>`;
+    <section class="panel"><h2>Ostatnie lekcje</h2><p class="small muted">Lekcja z minionego dnia liczy się jako odbyta, chyba że ją odwołasz – tak jak w aplikacji dla korepetytorki.</p><div class="list">${past.reverse().map(lrow).join("") || '<p class="empty">Jeszcze żadnych.</p>'}</div></section>`;
   }
   return `<div class="head"><div><p class="eyebrow">Stan na dziś · to samo widzi uczeń</p><h1>Płatności</h1></div></div>
   <div class="list">${rows.map(r => `<button class="row" data-act="selP" data-id="${r.s.id}"><span class="grow"><b>${esc(r.s.name)}</b><span class="small muted">do zapłaty ${zl(r.b.due)} · wpłaty ${zl(r.b.paid)}${r.nx ? " · następna: " + esc(fmtDate(r.nx.date) + ", " + (r.nx.time || "")) : ""}</span></span><span class="chip ${r.b.bal > 0 ? "bad" : "ok"}">${r.b.bal > 0 ? "do zapłaty " + zl(r.b.bal) : r.b.bal < 0 ? "nadpłata " + zl(-r.b.bal) : "opłacone"}</span></button>`).join("") || '<p class="empty">Brak danych – zaimportuj lekcje w Ustawieniach.</p>'}</div>`;
@@ -718,12 +720,55 @@ root.addEventListener("submit", async e => {
   } catch (err) { toast(err instanceof SyntaxError ? "Kod testu ma błąd – skopiuj go jeszcze raz w całości." : errMsg(err)); }
 });
 
+
+/* ---------------- cofanie zmian (Laura) ---------------- */
+const UNDO = { stack: [], cur: null, last: 0, off: false };
+const stripId = d => { if (!d) return null; const { id, ...rest } = d; return rest; };
+function undoRec(c, id, prior) {
+  const now = Date.now();
+  if (!UNDO.cur) { UNDO.cur = { at: now, items: new Map() }; UNDO.stack.push(UNDO.cur); if (UNDO.stack.length > 30) UNDO.stack.shift(); }
+  UNDO.last = now; const k = c + "/" + id;
+  if (!UNDO.cur.items.has(k)) UNDO.cur.items.set(k, { c, id, prior: prior ? clone(prior) : null });
+  undoBtn();
+}
+for (const ev of ["click", "change", "submit"]) document.addEventListener(ev, e => { if (!(e.target && e.target.id === "undoBtn")) UNDO.cur = null; }, true);
+function withUndo(B) {
+  const isAdmin = () => S.user && S.user.role === "admin" && !UNDO.off;
+  const cached = (c, id) => S.data && S.data[c] && typeof S.data[c] === "object" && !Array.isArray(S.data[c]) ? S.data[c][id] : undefined;
+  const before = async (c, id) => { try { return stripId(await B.get(c, id)); } catch (e) { const x = cached(c, id); return x === undefined ? null : stripId(x); } };
+  const W = Object.create(B);
+  for (const m of ["set", "update", "del"]) W[m] = async (c, id, d) => { if (isAdmin()) undoRec(c, id, await before(c, id)); return B[m](c, id, d); };
+  W.bulk = async (c, entries, onProg) => { if (isAdmin()) for (const [id] of entries) { const x = cached(c, id); undoRec(c, id, x === undefined ? null : stripId(x)); } return B.bulk(c, entries, onProg); };
+  return W;
+}
+function undoBtn() {
+  let b = document.getElementById("undoBtn");
+  if (!(S.user && S.user.role === "admin") || !UNDO.stack.length) { if (b) b.remove(); return; }
+  if (!b) { b = document.createElement("button"); b.id = "undoBtn"; b.type = "button"; b.className = "btn"; b.style.cssText = "position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:39;box-shadow:var(--shadow);background:var(--bg)"; b.addEventListener("click", undoLast); document.body.appendChild(b); }
+  const n = UNDO.stack[UNDO.stack.length - 1].items.size;
+  b.textContent = "↶ Cofnij" + (n > 1 ? ` (${n} zmian)` : "");
+}
+async function undoLast() {
+  const e = UNDO.stack.pop(); UNDO.cur = null; if (!e) return;
+  const b = document.getElementById("undoBtn"); if (b) { b.disabled = true; b.textContent = "Cofam…"; }
+  UNDO.off = true;
+  try {
+    const items = [...e.items.values()].reverse();
+    const restore = items.filter(x => x.prior), remove = items.filter(x => !x.prior);
+    const byCol = {}; for (const x of restore) (byCol[x.c] = byCol[x.c] || []).push(x);
+    for (const [c, xs] of Object.entries(byCol)) { if (xs.length > 5) { for (const x of xs) await B.del(c, x.id).catch(() => { }); await B.bulk(c, xs.map(x => [x.id, x.prior])); } else for (const x of xs) await B.set(c, x.id, x.prior); }
+    for (const x of remove) await B.del(x.c, x.id);
+    await loadAdmin(); render(); toast("Cofnięto");
+  } catch (err) { toast("Nie udało się cofnąć: " + errMsg(err)); }
+  finally { UNDO.off = false; if (b) b.disabled = false; undoBtn(); }
+}
+
 /* ---------------- start ---------------- */
 (async () => {
-  try { B = DEMO ? demoBackend() : await fbBackend(); }
+  try { B = withUndo(DEMO ? demoBackend() : await fbBackend()); }
   catch (e) { root.innerHTML = `<div class="wrap"><div class="notice bad" style="margin-top:40px">Nie udało się połączyć z Firebase. Sprawdź plik config.js. (${esc(e.message)})</div></div>`; return; }
   B.onAuth(async u => {
-    S.user = u; S.view = null; S.data = null;
+    S.user = u; S.view = null; S.data = null; UNDO.stack = []; UNDO.cur = null; undoBtn();
     if (u) { root.innerHTML = frame('<p class="empty">Ładowanie…</p>'); try { u.role === "admin" ? await loadAdmin() : await loadStudent(); } catch (e) { root.innerHTML = frame(`<div class="notice bad">${esc(errMsg(e))}</div>`); return; } }
     render();
   });
