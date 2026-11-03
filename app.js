@@ -287,8 +287,10 @@ function wireDue(scope) {
   scope.querySelectorAll("form").forEach(f => {
     const due = f.querySelector("[data-due]"); if (!due || f.dataset.dueWired) return; f.dataset.dueWired = "1";
     const sidOf = () => (f.querySelector("[name=sid]") || {}).value;
-    f.addEventListener("click", e => { const b = e.target.closest("[data-due-set]"); if (!b) return; const k = b.dataset.dueSet; due.value = k === "next" ? (nextLessonDate(sidOf()) || weekAhead()) : k === "week" ? weekAhead() : ""; if (k === "next" && !nextLessonDate(sidOf())) toast("Brak zaplanowanej lekcji – ustawiłam termin za tydzień."); });
-    const sel = f.querySelector("select[name=sid]"); if (sel) sel.addEventListener("change", () => { due.value = defaultDue(sel.value); const i = f.querySelector("[data-due-info]"); if (i) i.textContent = dueInfo(sel.value); });
+    const mark = () => { const v = due.value, nx = nextLessonDate(sidOf()); f.querySelectorAll("[data-due-set]").forEach(b => { const k = b.dataset.dueSet; b.setAttribute("aria-pressed", String(k === "none" ? !v : k === "next" ? !!v && v === nx : !!v && v === weekAhead() && v !== nx)); }); };
+    f.addEventListener("click", e => { const b = e.target.closest("[data-due-set]"); if (!b) return; const k = b.dataset.dueSet; due.value = k === "next" ? (nextLessonDate(sidOf()) || weekAhead()) : k === "week" ? weekAhead() : ""; if (k === "next" && !nextLessonDate(sidOf())) toast("Brak zaplanowanej lekcji – ustawiłam termin za tydzień."); else toast(due.value ? "Termin: " + fmtDate(due.value) : "Bez terminu"); mark(); if (k === "week") b.setAttribute("aria-pressed", "true"); });
+    due.addEventListener("change", mark); mark();
+    const sel = f.querySelector("select[name=sid]"); if (sel) sel.addEventListener("change", () => { due.value = defaultDue(sel.value); const i = f.querySelector("[data-due-info]"); if (i) i.textContent = dueInfo(sel.value); mark(); });
   });
 }
 function wireKind(scope) {

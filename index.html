@@ -200,13 +200,15 @@ legend{font-weight:700;font-size:13px;padding:0 4px}
 .mday .e.done{background:var(--ok-soft)} .mday .e.cancelled,.mday .e.moved{text-decoration:line-through;background:var(--surface)}
 .mday .cnt{display:none;font-size:11px;font-weight:700;color:var(--accent)}
 @media (max-width:600px){.mday{min-height:52px}.mday .e{display:none}.mday .cnt{display:block}}
+[hidden]{display:none!important}
+[data-due-set][aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
 </style>
 </head>
 <body>
 <div id="app"><div class="wrap"><p class="empty" style="padding-top:40px">Ładowanie…</p></div></div>
 <script src="config.js"></script>
-<script src="seed.js?v=1793713374"></script>
-<script src="arkusze.js?v=1793713374"></script>
-<script type="module" src="app.js?v=1793713374"></script>
+<script src="seed.js?v=1793713687"></script>
+<script src="arkusze.js?v=1793713687"></script>
+<script type="module" src="app.js?v=1793713687"></script>
 </body>
 </html>
