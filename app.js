@@ -236,8 +236,8 @@ function assignFormHtml(sid) {
   <div class="acts" data-duebtns><span class="small muted">Termin:</span><button type="button" class="btn sm ghost" data-due-set="next">do następnej lekcji</button><button type="button" class="btn sm ghost" data-due-set="week">za tydzień</button><button type="button" class="btn sm ghost" data-due-set="none">bez terminu</button><span class="small muted" data-due-info>${dueInfo(sid)}</span></div>
   <div data-kind="custom" style="display:grid;gap:12px"><label class="f">Tytuł<input name="title" placeholder="np. Zadania maturalne z funkcji"></label>
   <label class="f">Opis (opcjonalnie)<textarea name="desc" rows="3" placeholder="np. Arkusz maj 2023, zadania 5–12. Rozwiązania przynieś na lekcję."></textarea></label></div>
-  <div data-kind="material" hidden><label class="f">Materiał<select name="mid">${Object.values(S.data.materials || {}).sort((a, b) => (a.no || 0) - (b.no || 0)).map(m => { const g = sid ? givenTo(sid, m.id) : []; return `<option value="${m.id}">${g.length ? "✓ " : ""}${esc(m.title)}${g.length ? " (już dostał/a)" : ""}</option>`; }).join("")}</select></label><span class="small muted">Uczeń zobaczy przycisk „Pobierz PDF” – zestaw bez odpowiedzi, ze słówkami na końcu.</span></div>
-  <div data-kind="test" hidden><label class="f">Test<select name="tid">${ts.map(t => `<option value="${t.id}">${esc(t.title)} (${esc(t.level || "")})</option>`).join("")}</select></label></div>
+  <div data-kind="material" hidden style="display:grid;gap:8px"><input type="search" data-filter-for="mid" placeholder="Wpisz, żeby wyszukać materiał, np. zestaw 05, PLUS, praca" autocomplete="off"><label class="f">Materiał<select name="mid">${Object.values(S.data.materials || {}).sort((a, b) => (a.no || 0) - (b.no || 0)).map(m => { const g = sid ? givenTo(sid, m.id) : []; return `<option value="${m.id}">${g.length ? "✓ " : ""}${esc(m.title)}${g.length ? " (już dostał/a)" : ""}</option>`; }).join("")}</select></label><span class="small muted">Uczeń zobaczy przycisk „Pobierz PDF” – zestaw bez odpowiedzi, ze słówkami na końcu.</span></div>
+  <div data-kind="test" hidden style="display:grid;gap:8px"><input type="search" data-filter-for="tid" placeholder="Wpisz, żeby wyszukać test, np. liczby, matura 2023, czytanka" autocomplete="off"><label class="f">Test<select name="tid">${ts.map(t => `<option value="${t.id}">${esc(t.title)} (${esc(t.level || "")})</option>`).join("")}</select></label></div>
   <div><button class="btn primary" type="submit">Zadaj</button></div>`;
 }
 async function addCustom(sid, title, desc, due) {
@@ -293,8 +293,24 @@ function wireDue(scope) {
     const sel = f.querySelector("select[name=sid]"); if (sel) sel.addEventListener("change", () => { due.value = defaultDue(sel.value); const i = f.querySelector("[data-due-info]"); if (i) i.textContent = dueInfo(sel.value); mark(); });
   });
 }
+function wireFilter(scope) {
+  scope.querySelectorAll("[data-filter-for]").forEach(inp => {
+    if (inp.dataset.wired) return; inp.dataset.wired = "1";
+    const sel = inp.closest("form").querySelector(`select[name=${inp.dataset.filterFor}]`); if (!sel) return;
+    const all = [...sel.options].map(o => ({ v: o.value, t: o.textContent, n: norm(o.textContent) }));
+    inp.addEventListener("input", () => {
+      const words = norm(inp.value).split(/\s+/).filter(Boolean); const cur = sel.value;
+      const hit = all.filter(o => words.every(w => o.n.includes(w)));
+      sel.innerHTML = hit.map(o => `<option value="${esc(o.v)}">${esc(o.t)}</option>`).join("") || `<option value="">— nic nie pasuje —</option>`;
+      if (hit.some(o => o.v === cur)) sel.value = cur;
+      sel.size = hit.length > 1 && words.length ? Math.min(hit.length, 6) : 0;
+    });
+    inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); sel.size = 0; sel.focus(); } });
+    sel.addEventListener("change", () => { sel.size = 0; });
+  });
+}
 function wireKind(scope) {
-  wireDue(scope);
+  wireDue(scope); wireFilter(scope);
   const sel = scope.querySelector("[data-kindsel]"); if (!sel) return;
   const upd = () => scope.querySelectorAll("[data-kind]").forEach(d => { d.hidden = d.dataset.kind !== sel.value; });
   sel.addEventListener("change", upd); upd();
