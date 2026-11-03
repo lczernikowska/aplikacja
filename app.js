@@ -389,8 +389,10 @@ function photoBox(n, list, editable) {
 }
 const openMax = t => t.questions.reduce((s, q) => s + (q.type === "open" ? q.pts || 0 : 0), 0);
 const qMax = q => q.type === "open" ? 0 : q.type === "multi" ? q.c.length : (q.pts || 1);
-const qScore = (q, a) => { if (q.type === "open" || a === undefined) return 0; if (q.type === "multi") return Math.min(q.c.length, (a || []).filter(x => q.c.includes(x)).length); return a === q.c ? (q.pts || 1) : 0; };
-const scoreTest = (t, answers) => t.questions.reduce((s, q, n) => s + qScore(q, answers[n]), 0);
+const normAns = x => String(x || "").replace(/[’‘`´]/g, "'").replace(/\s+/g, " ").trim().replace(/[.!?,;]+$/, "").toLowerCase();
+const textOk = (q, a) => { const v = normAns(a); if (!v) return false; return (q.acc || []).some(x => normAns(x) === v) && !(q.caseI && /\bi\b/.test(String(a).replace(/[A-Z]/g, ""))); };
+const qScore = (q, a, ov) => { if (q.type === "open") return 0; if (ov === 1) return qMax(q); if (ov === 0) return 0; if (a === undefined) return 0; if (q.type === "text") return textOk(q, a) ? 1 : 0; if (q.type === "multi") return Math.min(q.c.length, (a || []).filter(x => q.c.includes(x)).length); return a === q.c ? (q.pts || 1) : 0; };
+const scoreTest = (t, answers, over) => t.questions.reduce((s, q, n) => s + qScore(q, answers[n], (over || {})[n]), 0);
 const maxTest = t => t.questions.reduce((s, q) => s + qMax(q), 0);
 const openPts = t => t.questions.reduce((s, q) => s + (q.type === "open" ? q.pts || 0 : 0), 0);
 function qHtml(q, n, answers, mode) {
@@ -405,6 +407,25 @@ function qHtml(q, n, answers, mode) {
   };
   const imgs = (q.imgs || []).map(u => `<img class="qimg" src="${esc(u)}" alt="${esc(q.label || "Zadanie")}" loading="lazy">`).join("");
   const label = q.label || `Zadanie ${n + 1}.`;
+  const intro = q.intro ? `<div class="notice small">${esc(q.intro)}</div>` : "";
+  const rv = (S.view || {}).result || {}; const isAdmin = S.user && S.user.role === "admin";
+  if (q.type === "text") {
+    const ov = (rv.over || {})[n]; const pts = qScore(q, mine, ov);
+    const input = mode === "take" ? `<input type="text" class="tin" data-txt="${n}" value="${esc(mine || "")}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${esc(q.hint || "wpisz odpowiedź")}">`
+      : `<div class="tans ${mode === "key" ? "" : pts ? "ok" : "bad"}">${mode === "key" ? esc((q.acc || [])[0] || "") : esc(mine || "– brak odpowiedzi –")}</div>`;
+    let rev = "";
+    if (review && mode !== "key") rev = `<span class="verdict ${pts ? "ok" : "bad"}">${pts ? "Dobrze" : "Źle"}${ov !== undefined ? " · decyzja nauczycielki" : ""}</span>${isAdmin && mode === "result" ? ` <button type="button" class="btn sm ghost" data-act="ovr" data-n="${n}" data-v="${pts ? 0 : 1}">${pts ? "Nie uznaj" : "Uznaj odpowiedź"}</button>${ov !== undefined ? ` <button type="button" class="btn sm ghost" data-act="ovr" data-n="${n}" data-v="">Przywróć automat</button>` : ""}` : ""}`;
+    if (review) rev += `<div class="expl"><b>${q.e ? "Wyjaśnienie" : "Poprawne odpowiedzi"}</b><span>${esc(q.e || "")}${(q.acc || []).length > 1 ? `<br><span class="small muted">Akceptowane m.in.: ${esc(q.acc.slice(0, 8).join(" / "))}</span>` : ""}</span></div>`;
+    return `${intro}${q.imgs ? `<div class="q qgrp">${(q.imgs || []).map(u => `<img class="qimg" src="${esc(u)}" alt="Zadanie" loading="lazy">`).join("")}</div>` : ""}<div class="q qitem"><span class="qn">${esc(label)}</span>${input}${rev}</div>`;
+  }
+  if (q.type === "open" && q.write) {
+    const g = (rv.openPts || {})[n]; const txt = mode === "take" ? (mine ?? q.start ?? "") : (mine || "");
+    const wc = s => (String(s).trim().match(/\S+/g) || []).length;
+    const body = mode === "take" ? `<textarea class="essay" rows="16" data-essay="${n}">${esc(txt)}</textarea><span class="small muted" data-wc="${n}">Liczba wyrazów: ${wc(txt)}${q.words ? ` (wymagane ${q.words[0]}–${q.words[1]})` : ""}</span>`
+      : mode === "result" ? `<div class="essayout">${esc(txt) || "<i>– brak tekstu –</i>"}</div><span class="small muted">Liczba wyrazów: ${wc(txt)}${q.words ? ` (wymagane ${q.words[0]}–${q.words[1]})` : ""}</span>
+        ${isAdmin ? `<label class="f gpts">Punkty za wypowiedź<span style="display:flex;gap:8px;align-items:center"><input type="number" min="0" max="${q.pts}" step="1" data-gpts="${n}" value="${g ?? ""}" style="width:90px"> <span class="muted">/ ${q.pts} pkt</span></span></label>` : `<span class="verdict ${g == null ? "" : "ok"}">${g == null ? "Czeka na ocenę" : `Ocena: ${g}/${q.pts} pkt`}</span>`}` : "";
+    return `${intro}<div class="q">${(q.imgs || []).map(u => `<img class="qimg" src="${esc(u)}" alt="Zadanie" loading="lazy">`).join("")}<span class="qn"><span class="chip">wypowiedź pisemna · ${q.pts} pkt</span></span>${body}${review && q.e ? `<div class="expl"><b>Jak będzie oceniana</b><span>${esc(q.e)}</span></div>` : ""}</div>`;
+  }
   if (q.type === "open") {
     return `<div class="q"><span class="qn">${q.imgs ? "" : esc(label) + " "}<span class="chip">zadanie otwarte · ${q.pts} pkt</span></span>${imgs}${q.t ? `<div class="qt">${esc(q.t)}</div>` : ""}
     ${(() => { const v = S.view || {}; const r = v.result || {};
@@ -417,7 +438,7 @@ function qHtml(q, n, answers, mode) {
       ${q.e ? `<div class="expl"><b>Rozwiązanie</b><span>${esc(q.e)}</span></div>` : ""}`; })()}</div>`;
   }
   const L = q.L || (q.type === "tf" ? null : "ABCDEFGH".split(""));
-  const bare = !!q.imgs && !q.o;
+  const bare = !q.o && q.type !== "tf";
   const opts = q.type === "tf" ? opt(true, "P", "Prawda") + opt(false, "F", "Fałsz") : (q.o || L.slice(0, (q.L || []).length || 4)).map((o, k) => opt(k, L[k], q.o ? o : "")).join("");
   let verdict = "";
   if (review) {
@@ -426,7 +447,9 @@ function qHtml(q, n, answers, mode) {
     verdict = `<span class="verdict ${pts === max ? "ok" : "bad"}">${word}${max > 1 && mode !== "key" ? ` · ${pts}/${max} pkt` : ""}</span>${q.e ? `<div class="expl"><b>Wyjaśnienie</b><span>${esc(q.e)}</span></div>` : ""}`;
   }
   const chips = `${isMulti ? ` <span class="chip">wybierz ${q.k || q.c.length}</span>` : ""}${qMax(q) > 1 ? ` <span class="chip">${qMax(q)} pkt</span>` : ""}`;
-  return `<div class="q">${q.imgs ? (chips ? `<span class="qn">${chips}</span>` : "") : `<span class="qn">${esc(label)}${q.type === "tf" ? " Prawda czy fałsz?" : ""}${chips}</span>`}${imgs}${q.t ? `<div class="qt">${esc(q.t)}</div>` : ""}<div class="opts${bare ? " inline" : ""}">${opts}</div>${verdict}</div>`;
+  if (q.label && !q.label.startsWith("Zadanie") && q.imgs) return `${intro}<div class="q qgrp">${imgs}</div><div class="q qitem"><span class="qn">${esc(q.label)}${chips}</span><div class="opts${bare ? " inline" : ""}">${opts}</div>${verdict}</div>`;
+  if (q.label && !q.label.startsWith("Zadanie")) return `<div class="q qitem"><span class="qn">${esc(q.label)}${chips}</span><div class="opts${bare ? " inline" : ""}">${opts}</div>${verdict}</div>`;
+  return `${intro}<div class="q">${q.imgs ? (chips ? `<span class="qn">${chips}</span>` : "") : `<span class="qn">${esc(label)}${q.type === "tf" ? " Prawda czy fałsz?" : ""}${chips}</span>`}${imgs}${q.t ? `<div class="qt">${esc(q.t)}</div>` : ""}<div class="opts${bare ? " inline" : ""}">${opts}</div>${verdict}</div>`;
 }
 function testBody(t, answers, mode) {
   return groupQuestions(t).map(g => `${g.p ? passageHtml(g.p) : ""}${g.qs.map(n => qHtml(t.questions[n], n, answers, mode)).join("")}`).join("");
@@ -434,7 +457,8 @@ function testBody(t, answers, mode) {
 function renderTest() {
   const v = S.view; const t = v.test;
   const closedQ = t.questions.map((q, n) => [q, n]).filter(([q]) => q.type !== "open");
-  const total = closedQ.length; const answered = closedQ.filter(([q, n]) => v.answers[n] !== undefined && !(q.type === "multi" && !(v.answers[n] || []).length)).length;
+  const filled = (q, a) => a !== undefined && a !== "" && !(q.type === "multi" && !(a || []).length);
+  const total = closedQ.length; const answered = closedQ.filter(([q, n]) => filled(q, v.answers[n])).length;
   let top = "", bottom = "";
   if (v.mode === "take") {
     bottom = `<div class="submitbar"><span class="muted">Odpowiedzi: <b>${answered}/${total}</b></span><button class="btn primary" data-act="submitTest" ${S.busy ? "disabled" : ""}>Oddaj test</button></div>`;
@@ -443,22 +467,24 @@ function renderTest() {
     const op = openPts(t); const nOpen = t.questions.filter(q => q.type === "open").length; const graded = Object.keys(r.openPts || {}).length;
     const cs = r.closedScore ?? (graded ? null : r.score), cm = r.closedMax ?? (graded ? null : r.max);
     const og = Object.values(r.openPts || {}).reduce((a, x) => a + x, 0);
-    top = `<div class="scorecard"><span class="score">${r.score}/${r.max}</span><div><b>${pct(r.score, r.max)}%</b><p class="small muted">${op ? `Zadania zamknięte: ${cs ?? "–"}/${cm ?? "–"} pkt · zadania otwarte: ${graded ? `${og}/${op} pkt${graded < nOpen ? ` (sprawdzone ${graded} z ${nOpen})` : ""}` : `${op} pkt – czekają na sprawdzenie`}` : "Przejrzyj wyjaśnienia przy pytaniach, zwłaszcza tam, gdzie jest „Źle”."}</p></div></div>`;
+    top = `<div class="scorecard"><span class="score">${r.score}/${r.max}</span><div><b>${pct(r.score, r.max)}%</b><p class="small muted">${op ? `${t.subject === "ang" ? "Sprawdzane automatycznie" : "Zadania zamknięte"}: ${cs ?? "–"}/${cm ?? "–"} pkt · ${t.subject === "ang" ? "wypowiedź pisemna" : "zadania otwarte"}: ${graded ? `${og}/${op} pkt${graded < nOpen ? ` (sprawdzone ${graded} z ${nOpen})` : ""}` : `${op} pkt – ${t.subject === "ang" ? "czeka" : "czekają"} na sprawdzenie`}` : "Przejrzyj wyjaśnienia przy pytaniach, zwłaszcza tam, gdzie jest „Źle”."}</p></div></div>`;
   } else top = `<div class="notice small">Podgląd z kluczem odpowiedzi i wyjaśnieniami.</div>`;
   root.innerHTML = frame(`<div class="head"><div><button class="btn sm ghost" data-act="back" style="justify-self:start">← Wróć</button><p class="eyebrow">${esc(t.topic || "")}${t.level ? " · " + esc(t.level) : ""}</p><h1>${esc(t.title)}</h1>${v.who ? `<p class="muted">${esc(v.who)}</p>` : ""}</div></div>
   ${top}<div class="sheet">${t.instructions ? `<p class="muted">${esc(t.instructions)}</p>` : ""}${testBody(t, v.answers, v.mode)}</div>${bottom}`);
 }
 async function submitTest() {
   const v = S.view; const t = v.test;
-  const need = t.questions.filter(q => q.type !== "open").length; const got = t.questions.filter((q, n) => q.type !== "open" && v.answers[n] !== undefined && !(q.type === "multi" && !(v.answers[n] || []).length)).length;
+  const need = t.questions.filter(q => q.type !== "open").length; const got = t.questions.filter((q, n) => q.type !== "open" && v.answers[n] !== undefined && String(v.answers[n]).trim() !== "" && !(q.type === "multi" && !(v.answers[n] || []).length)).length;
   if (got < need && !(await ask("Nie odpowiedziałeś/aś na wszystkie pytania. Oddać mimo to?", "Oddaj"))) return;
   const score = scoreTest(t, v.answers);
-  const nOpen = t.questions.filter(q => q.type === "open").length, nPh = Object.values(v.photos || {}).filter(a => a.length).length;
+  const nOpen = t.questions.filter(q => q.type === "open" && !q.write).length, nPh = Object.values(v.photos || {}).filter(a => a.length).length;
+  const nW = t.questions.map((q, i) => [q, i]).filter(([q, i]) => q.type === "open" && q.write && !String(v.answers[i] || "").replace(q.start || "", "").trim()).length;
+  if (nW && !(await ask("Wypowiedź pisemna jest pusta. Oddać test bez niej?", "Oddaj"))) return;
   if (nOpen && nPh < nOpen && !(await ask(`Zdjęcia dodałeś/aś do ${nPh} z ${nOpen} zadań otwartych. Bez zdjęcia nauczycielka nie przyzna punktów. Oddać mimo to?`, "Oddaj"))) return;
   let photos = {}; if (nPh) { S.busy = true; renderTest(); photos = await fitPhotos(v.photos); S.busy = false; if (!photos) { renderTest(); toast("Zdjęcia są za duże – usuń część z nich i spróbuj jeszcze raz."); return; } }
   const res = { assignmentId: v.assignment.id, studentId: S.user.studentId, testId: t.id, answers: v.answers, score, max: maxTest(t), closedScore: score, closedMax: maxTest(t), photos, submittedAt: new Date().toISOString() };
   S.busy = true; renderTest();
-  try { await B.set("results", v.assignment.id, res); S.data.results[v.assignment.id] = res; S.view = { ...v, mode: "result", result: res }; }
+  try { await B.set("results", v.assignment.id, res); try { sessionStorage.removeItem("pe_draft_" + v.assignment.id); } catch (err) { } S.data.results[v.assignment.id] = res; S.view = { ...v, mode: "result", result: res }; }
   catch (e) { toast(errMsg(e)); }
   S.busy = false; renderTest(); window.scrollTo(0, 0);
 }
@@ -1247,12 +1273,20 @@ root.addEventListener("click", async e => {
     else if (act === "openTest") {
       const a = S.data.assignments[el.dataset.id]; const t = S.data.tests[a.testId]; if (!t) return toast("Nie znaleziono testu.");
       const r = S.data.results[a.id];
-      S.view = r ? { type: "test", mode: "result", test: t, assignment: a, answers: r.answers || {}, result: r } : { type: "test", mode: "take", test: t, assignment: a, answers: {} };
+      let draft = {}; try { draft = JSON.parse(sessionStorage.getItem("pe_draft_" + a.id) || "{}") || {}; } catch (err) { }
+      S.view = r ? { type: "test", mode: "result", test: t, assignment: a, answers: r.answers || {}, result: r } : { type: "test", mode: "take", test: t, assignment: a, answers: draft };
       render(); window.scrollTo(0, 0);
+    }
+    else if (act === "ovr") {
+      const r = S.view.result, aid = S.view.assignment.id, n = el.dataset.n; const over = { ...(r.over || {}) };
+      if (el.dataset.v === "") delete over[n]; else over[n] = Number(el.dataset.v);
+      const cs = scoreTest(S.view.test, r.answers || {}, over), cm = r.closedMax ?? r.max; const op = r.openPts || {}; const has = Object.keys(op).length;
+      const upd = { over, closedScore: cs, closedMax: cm, score: cs + Object.values(op).reduce((a, x) => a + x, 0), max: cm + (has ? openMax(S.view.test) : 0) };
+      await B.update("results", aid, upd); Object.assign(r, upd); S.data.results[aid] = r; const y = window.scrollY; renderTest(); window.scrollTo(0, y); toast(`Zapisano · wynik ${upd.score}/${upd.max}`);
     }
     else if (act === "phDel") { const n = el.dataset.n; S.view.photos[n].splice(Number(el.dataset.i), 1); const y = window.scrollY; renderTest(); window.scrollTo(0, y); }
     else if (act === "ans") { if (S.view.mode !== "take") return; const n = el.dataset.n, val = JSON.parse(el.dataset.v), q = S.view.test.questions[n];
-      if (q.type === "multi") { let a = (S.view.answers[n] || []).slice(); a = a.includes(val) ? a.filter(x => x !== val) : [...a, val]; if (a.length > (q.k || q.c.length)) a.shift(); S.view.answers[n] = a.sort(); } else S.view.answers[n] = val; const y = window.scrollY; renderTest(); window.scrollTo(0, y); }
+      if (q.type === "multi") { let a = (S.view.answers[n] || []).slice(); a = a.includes(val) ? a.filter(x => x !== val) : [...a, val]; if (a.length > (q.k || q.c.length)) a.shift(); S.view.answers[n] = a.sort(); } else S.view.answers[n] = val; try { sessionStorage.setItem("pe_draft_" + S.view.assignment.id, JSON.stringify(S.view.answers)); } catch (err) { } const y = window.scrollY; renderTest(); window.scrollTo(0, y); }
     else if (act === "submitTest") await submitTest();
     else if (act === "back") { S.view = null; render(); }
     else if (act === "previewTest") { const t = S.data.tests[el.dataset.id]; S.view = { type: "test", mode: "key", test: { id: el.dataset.id, ...t }, answers: Object.fromEntries(t.questions.map((q, n) => [n, q.c])) }; render(); window.scrollTo(0, 0); }
@@ -1279,7 +1313,16 @@ root.addEventListener("click", async e => {
     else if (act === "wipe") { if (await ask("Wyczyścić dane podglądu?", "Wyczyść")) { B.wipe(); await loadAdmin(); render(); toast("Wyczyszczono"); } }
   } catch (err) { console.error(err); toast(errMsg(err)); }
 });
-root.addEventListener("input", e => { const k = e.target.dataset && e.target.dataset.filter; if (!k) return; S.q[k] = e.target.value; applyFilter(k); });
+root.addEventListener("input", e => {
+  const ds = e.target.dataset || {};
+  if ((ds.txt !== undefined || ds.essay !== undefined) && S.view && S.view.mode === "take") {
+    const n = ds.txt ?? ds.essay; S.view.answers[n] = e.target.value;
+    if (ds.essay !== undefined) { const q = S.view.test.questions[n]; const w = (e.target.value.trim().match(/\S+/g) || []).length; const el = root.querySelector(`[data-wc="${n}"]`); if (el) el.textContent = `Liczba wyrazów: ${w}${q.words ? ` (wymagane ${q.words[0]}–${q.words[1]})` : ""}`; }
+    const bar = root.querySelector(".submitbar b"); if (bar) { const t = S.view.test; const cq = t.questions.map((q, i) => [q, i]).filter(([q]) => q.type !== "open"); bar.textContent = `${cq.filter(([q, i]) => { const a = S.view.answers[i]; return a !== undefined && String(a).trim() !== "" && !(q.type === "multi" && !(a || []).length); }).length}/${cq.length}`; }
+    try { sessionStorage.setItem("pe_draft_" + S.view.assignment.id, JSON.stringify(S.view.answers)); } catch (err) { }
+    return;
+  }
+  const k = ds.filter; if (!k) return; S.q[k] = e.target.value; applyFilter(k); });
 root.addEventListener("change", async e => {
   if (e.target.dataset.edone || e.target.dataset.epct !== undefined) {
     try {
@@ -1316,7 +1359,7 @@ root.addEventListener("change", async e => {
     const n = e.target.dataset.gpts, q = S.view.test.questions[n], r = S.view.result, aid = S.view.assignment.id;
     const raw = e.target.value.trim(); const op = { ...(r.openPts || {}) };
     if (raw === "") delete op[n]; else { const v = Math.round(Number(raw.replace(",", ".")) * 2) / 2; if (!(v >= 0 && v <= q.pts)) { toast(`Wpisz od 0 do ${q.pts} pkt.`); return; } op[n] = v; }
-    const cs = r.closedScore ?? r.score, cm = r.closedMax ?? r.max; const has = Object.keys(op).length;
+    const cs = scoreTest(S.view.test, r.answers || {}, r.over), cm = r.closedMax ?? r.max; const has = Object.keys(op).length;
     const upd = { openPts: op, closedScore: cs, closedMax: cm, score: cs + Object.values(op).reduce((a, x) => a + x, 0), max: cm + (has ? openMax(S.view.test) : 0), gradedAt: new Date().toISOString() };
     try { await B.update("results", aid, upd); Object.assign(r, upd); S.data.results[aid] = r; const y = window.scrollY; renderTest(); window.scrollTo(0, y); toast(`Zapisano · wynik ${upd.score}/${upd.max}`); } catch (err) { toast(errMsg(err)); }
     return;
