@@ -149,6 +149,55 @@ pre.copy{background:var(--surface);border-radius:8px;padding:12px;white-space:pr
 .empty{color:var(--muted);padding:8px 0}
 .install{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;border:1px dashed var(--mustard);border-radius:var(--r);padding:10px 14px;font-size:14px}
 @media (max-width:600px){h1{font-size:22px}.date{min-width:0}.score{font-size:34px}}
+
+/* kalendarz i korepetycje */
+.acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.link{font:inherit;font-weight:600;border:0;background:none;padding:0;color:var(--fg);cursor:pointer;text-align:left}
+.link:hover{color:var(--accent);text-decoration:underline}
+.time{font-variant-numeric:tabular-nums;font-weight:700;min-width:46px}
+.row.struck .time,.row.struck .link{text-decoration:line-through;color:var(--muted)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:16px;align-items:start}
+.phead{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.modal.wide{max-width:760px}
+.btn.danger{color:var(--bad)}
+fieldset{border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;margin:0;display:grid;gap:8px;min-width:0}
+legend{font-weight:700;font-size:13px;padding:0 4px}
+.check{display:flex;gap:8px;align-items:center;font-weight:400;font-size:15px;cursor:pointer}
+.check input{width:auto}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;margin:0}
+.kv dt{color:var(--muted);font-size:13px}
+.kv dd{margin:0;font-weight:600;white-space:pre-wrap;overflow-wrap:anywhere}
+.subtabs{display:flex;gap:6px;flex-wrap:wrap}
+.subtabs button{font:inherit;font-size:14px;font-weight:500;border:1px solid var(--line);background:var(--bg);color:var(--muted);padding:7px 14px;border-radius:999px;cursor:pointer}
+.subtabs button[aria-selected="true"]{background:var(--mustard-soft);border-color:var(--mustard);color:var(--fg);font-weight:600}
+.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.toolbar .lbl{font-weight:700;font-size:17px;margin-inline:4px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{font:inherit;font-weight:600;font-size:13px;border:0;background:var(--bg);color:var(--muted);padding:7px 12px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent)}
+.week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}
+.day{border:1px solid var(--line);border-radius:var(--r);padding:8px;min-height:140px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.day.today{border-color:var(--mustard);background:var(--mustard-soft)}
+.day h3{font-size:13px;display:flex;justify-content:space-between;align-items:center;color:var(--muted);margin:0}
+.day.today h3{color:var(--mustard-ink)}
+.add{font:inherit;border:0;background:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:0 4px;border-radius:4px}
+.add:hover{color:var(--accent);background:var(--accent-soft)}
+.lz{font:inherit;border:0;text-align:left;cursor:pointer;display:block;width:100%;padding:6px 8px;border-radius:6px;background:var(--accent-soft);color:var(--fg);font-size:13px;line-height:1.3;overflow-wrap:anywhere}
+.lz.done{background:var(--ok-soft)}
+.lz.cancelled,.lz.moved{background:var(--surface);text-decoration:line-through;color:var(--muted)}
+.day.today .lz{background:var(--bg)}
+@media (max-width:780px){.week{grid-template-columns:1fr}.day{min-height:0}}
+.month{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.mh{font-size:12px;font-weight:700;color:var(--muted);text-align:center;padding:4px 0}
+.mday{font:inherit;color:inherit;text-align:left;border:1px solid var(--line);border-radius:6px;min-height:84px;padding:4px 6px;cursor:pointer;background:var(--bg);display:flex;flex-direction:column;gap:2px;min-width:0}
+.mday:hover{border-color:var(--accent)}
+.mday.out{opacity:.45}
+.mday.today{border-color:var(--mustard);background:var(--mustard-soft)}
+.mday .d{font-size:12px;font-weight:700}
+.mday .e{font-size:11px;line-height:1.25;border-radius:4px;padding:1px 4px;background:var(--accent-soft);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.mday .e.done{background:var(--ok-soft)} .mday .e.cancelled,.mday .e.moved{text-decoration:line-through;background:var(--surface)}
+.mday .cnt{display:none;font-size:11px;font-weight:700;color:var(--accent)}
+@media (max-width:600px){.mday{min-height:52px}.mday .e{display:none}.mday .cnt{display:block}}
 </style>
 </head>
 <body>

@@ -95,7 +95,7 @@ async function fbBackend() {
 
 /* ---------------- stan ---------------- */
 let B = null;
-const S = { user: null, tab: "maturzysci", sel: null, showAll: false, view: null, data: null, busy: false };
+const S = { user: null, tab: "dzis", sel: null, showAll: false, view: null, data: null, busy: false };
 
 function ask(msg, okLabel = "Tak") {
   return new Promise(res => {
@@ -133,7 +133,7 @@ function balanceOf(lessons, payments) {
 }
 function nextLessons(lessons, n) {
   const t = today(), now = new Date(); const hm = pad(now.getHours()) + ":" + pad(now.getMinutes());
-  return lessons.filter(l => l.status !== "cancelled" && (l.date > t || (l.date === t && (l.time || "99") >= hm))).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)).slice(0, n);
+  return lessons.filter(l => l.status !== "cancelled" && l.status !== "moved" && (l.date > t || (l.date === t && (l.time || "99") >= hm))).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)).slice(0, n);
 }
 function balanceBlock(b) {
   const cls = b.bal > 0 ? "bad" : "ok";
@@ -143,7 +143,8 @@ function balanceBlock(b) {
 async function loadAdmin() {
   const [students, plans, tests, assignments, results, planState, mathProgress, materials, lessons, payments, engProgress] = await Promise.all(["students", "plans", "tests", "assignments", "results", "planState", "mathProgress", "materials", "lessons", "payments", "engProgress"].map(c => B.list(c)));
   const by = a => Object.fromEntries(a.map(x => [x.id, x]));
-  S.data = { students: by(students), plans: by(plans), tests: by(tests), assignments: by(assignments), results: by(results), planState: by(planState), mathProgress: by(mathProgress), materials: { ...Object.fromEntries((SEED.materials || []).map(m => [m.id, m])), ...by(materials) }, lessons: by(lessons), payments: by(payments), engProgress: by(engProgress) };
+  const settingsApp = await B.get("settings", "app").catch(() => null);
+  S.data = { settings: settingsApp || {}, students: by(students), plans: by(plans), tests: by(tests), assignments: by(assignments), results: by(results), planState: by(planState), mathProgress: by(mathProgress), materials: { ...Object.fromEntries((SEED.materials || []).map(m => [m.id, m])), ...by(materials) }, lessons: by(lessons), payments: by(payments), engProgress: by(engProgress) };
 }
 async function loadStudent() {
   const sid = S.user.studentId;
@@ -155,7 +156,7 @@ async function loadStudent() {
 }
 
 /* ---------------- ramka ---------------- */
-const ADMIN_TABS = [["maturzysci", "Matura angielski"], ["matematyka", "Matura matematyka"], ["materialy", "Materiały"], ["platnosci", "Płatności"], ["zadania", "Zadania domowe"], ["testy", "Bank testów"], ["uczniowie", "Uczniowie"], ["ustawienia", "Ustawienia"]];
+const ADMIN_TABS = [["dzis", "Dziś"], ["kalendarz", "Kalendarz"], ["uczniowie", "Uczniowie"], ["platnosci", "Płatności"], ["zgory", "Rozliczenie z góry"], ["zadania", "Zadania domowe"], ["maturzysci", "Matura angielski"], ["matematyka", "Matura matematyka"], ["materialy", "Materiały"], ["testy", "Bank testów"], ["ustawienia", "Ustawienia"]];
 function frame(inner) {
   const u = S.user;
   const tabs = u && u.role === "admin" && !S.view ? `<nav class="tabs">${ADMIN_TABS.map(([k, l]) => `<button data-act="tab" data-k="${k}" ${S.tab === k ? 'aria-current="page"' : ""}>${l}</button>`).join("")}</nav>` : "";
@@ -233,27 +234,6 @@ async function submitAssign(f) {
   if (f.get("kind") === "test") { if (!f.get("tid")) { toast("Wybierz test."); return false; } await addAssignment(sid, f.get("tid"), due); }
   else { const title = String(f.get("title") || "").trim(); if (!title) { toast("Wpisz tytuł zadania."); return false; } await addCustom(sid, title, String(f.get("desc") || "").trim(), due); }
   toast("Zadane"); return true;
-}
-function studentModal(s) {
-  const ov = document.createElement("div"); ov.className = "ov";
-  const draw = () => {
-    const as = Object.values(S.data.assignments).filter(a => a.studentId === s.id).sort((a, b) => (b.due || "").localeCompare(a.due || ""));
-    ov.innerHTML = `<div class="modal wide" role="dialog" aria-modal="true"><header><h2>${esc(s.name)}</h2><button class="x" data-x>×</button></header>
-    <div class="mb"><form class="panel" style="padding:14px 16px;display:grid;gap:12px" id="stAssign"><h3>Zadaj zadanie</h3>${assignFormHtml(s.id)}</form>
-    <section><h3>Zadania ucznia</h3>${as.length ? `<div class="list">${as.map(a => { const r = S.data.results[a.id];
-      return `<div class="row"><span class="grow"><b>${esc(taskTitle(a))}</b><span class="small muted">${a.kind === "custom" ? "zadanie własne" : "test"}${a.due ? " · termin: " + fmtDate(a.due) : ""}</span></span>${r ? (a.kind === "custom" ? '<span class="chip ok">zrobione</span>' : `<span class="chip ${pct(r.score, r.max) >= 70 ? "ok" : pct(r.score, r.max) >= 50 ? "warn" : "bad"}">${r.score}/${r.max}</span>`) : (a.kind === "custom" ? `<button class="btn sm" data-mact="done" data-id="${a.id}">Odhacz</button>` : '<span class="chip">czeka</span>')}${r ? "" : `<button class="btn sm ghost" data-mact="del" data-id="${a.id}">usuń</button>`}</div>`; }).join("")}</div>` : '<p class="empty">Nic jeszcze nie zadano.</p>'}</section></div></div>`;
-    wireKind(ov);
-    ov.querySelector("#stAssign").addEventListener("submit", async e => { e.preventDefault(); UNDO.cur = null; try { if (await submitAssign(new FormData(e.target))) draw(); } catch (err) { toast(errMsg(err)); } });
-  };
-  ov.addEventListener("click", async e => {
-    if (e.target === ov || e.target.closest("[data-x]")) { ov.remove(); render(); return; }
-    const b = e.target.closest("[data-mact]"); if (!b) return; UNDO.cur = null;
-    try {
-      if (b.dataset.mact === "done") { await markCustomDone(b.dataset.id); draw(); }
-      else if (b.dataset.mact === "del" && await ask("Usunąć to zadanie?", "Usuń")) { await B.del("assignments", b.dataset.id); delete S.data.assignments[b.dataset.id]; draw(); }
-    } catch (err) { toast(errMsg(err)); }
-  });
-  document.body.appendChild(ov); draw();
 }
 function wireKind(scope) {
   const sel = scope.querySelector("[data-kindsel]"); if (!sel) return;
@@ -549,8 +529,10 @@ function renderPlatnosci() {
     <section class="panel"><h2>Najbliższe lekcje</h2><div class="list">${up.map(lrow).join("") || '<p class="empty">Brak.</p>'}</div></section>
     <section class="panel"><h2>Ostatnie lekcje</h2><p class="small muted">Lekcja z minionego dnia liczy się jako odbyta, chyba że ją odwołasz – tak jak w aplikacji dla korepetytorki.</p><div class="list">${past.reverse().map(lrow).join("") || '<p class="empty">Jeszcze żadnych.</p>'}</div></section>`;
   }
-  return `<div class="head"><div><p class="eyebrow">Stan na dziś · to samo widzi uczeń</p><h1>Płatności</h1></div></div>
-  <div class="list">${rows.map(r => `<button class="row" data-act="selP" data-id="${r.s.id}"><span class="grow"><b>${esc(r.s.name)}</b><span class="small muted">do zapłaty ${zl(r.b.due)} · wpłaty ${zl(r.b.paid)}${r.nx ? " · następna: " + esc(fmtDate(r.nx.date) + ", " + (r.nx.time || "")) : ""}</span></span><span class="chip ${r.b.bal > 0 ? "bad" : "ok"}">${r.b.bal > 0 ? "do zapłaty " + zl(r.b.bal) : r.b.bal < 0 ? "nadpłata " + zl(-r.b.bal) : "opłacone"}</span></button>`).join("") || '<p class="empty">Brak danych – zaimportuj lekcje w Ustawieniach.</p>'}</div>`;
+  const allP = Object.values(S.data.payments).filter(p => !isCharge(p)).sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 15);
+  return `<div class="head"><div><p class="eyebrow">Stan na dziś · to samo widzi uczeń</p><h1>Płatności</h1></div><div class="acts"><button class="btn primary" data-act="newPayment">+ Wpłata</button><button class="btn" data-act="newCharge">+ Zaległość</button></div></div>
+  <div class="list">${rows.map(r => `<button class="row" data-act="selP" data-id="${r.s.id}"><span class="grow"><b>${esc(r.s.name)}</b><span class="small muted">za lekcje ${zl(r.b.due)} · wpłaty ${zl(r.b.paid)}${r.nx ? " · następna: " + esc(fmtDate(r.nx.date) + ", " + (r.nx.time || "")) : ""}</span></span><span class="chip ${r.b.bal > 0 ? "bad" : "ok"}">${r.b.bal > 0 ? "do zapłaty " + zl(r.b.bal) : r.b.bal < 0 ? "nadpłata " + zl(-r.b.bal) : "opłacone"}</span></button>`).join("") || '<p class="empty">Brak danych.</p>'}</div>
+  ${allP.length ? `<section class="panel"><h2>Ostatnie wpłaty</h2><div class="list">${allP.map(p => `<div class="row"><span class="grow"><b>${esc(sName(p.studentId))} · ${zl(Number(p.amount) || 0)}</b><span class="small muted">${esc(fmtDate(p.date))}${p.method ? " · " + esc(p.method) : ""}${p.note ? " · " + esc(p.note) : ""}</span></span><button class="btn sm ghost" data-act="delPay" data-id="${p.id}">usuń</button></div>`).join("")}</div></section>` : ""}`;
 }
 
 /* ---------------- Laura: zadania ---------------- */
@@ -576,19 +558,6 @@ function renderTesty() {
 }
 
 /* ---------------- Laura: uczniowie ---------------- */
-function renderUczniowie() {
-  const st = Object.values(S.data.students).sort((a, b) => a.name.localeCompare(b.name, "pl"));
-  return `<div class="head"><div><p class="eyebrow">Konta uczniów</p><h1>Uczniowie</h1></div></div>
-  <p class="muted small">Kliknij „Zadaj zadanie”, żeby dać uczniowi test albo własne zadanie (np. zadania maturalne z funkcji). Utwórz uczniowi konto, a aplikacja pokaże Ci gotową wiadomość z linkiem, e-mailem i hasłem do wysłania.</p>
-  <div class="list">${st.map(s => `<div class="row"><span class="grow"><b>${esc(s.name)}</b><span class="small muted">${esc(s.subjectLabel || "angielski")}${s.level ? " · " + esc(s.level) : ""}${s.loginEmail ? " · konto: " + esc(s.loginEmail) : ""}</span></span>
-  ${(() => { const n = Object.values(S.data.assignments).filter(a => a.studentId === s.id && !S.data.results[a.id]).length; return n ? `<span class="chip">${n} do zrobienia</span>` : ""; })()}
-  <button class="btn sm primary" data-act="stOpen" data-id="${s.id}">Zadaj zadanie</button>
-  ${s.loginEmail ? '<span class="chip ok">ma konto</span>' : `<button class="btn sm mustard" data-act="makeLogin" data-id="${s.id}">Utwórz konto</button>`}</div>`).join("")}</div>
-  <form class="panel" id="addStudent"><h2>Dodaj ucznia</h2><div class="frow"><label class="f">Imię<input name="name" required></label>
-  <label class="f">Przedmiot<select name="subj"><option>angielski</option><option>matematyka</option></select></label>
-  <label class="f">Poziom<select name="level"><option value="PR">rozszerzony</option><option value="PP">podstawowy</option></select></label>
-  <button class="btn primary" type="submit">Dodaj</button></div></form>`;
-}
 function loginModal(s) {
   const ov = document.createElement("div"); ov.className = "ov";
   ov.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><header><h2>Konto dla: ${esc(s.name)}</h2><button class="x" data-x>×</button></header>
@@ -616,9 +585,10 @@ function loginModal(s) {
 /* ---------------- Laura: ustawienia ---------------- */
 function renderUstawienia() {
   return `<div class="head"><div><p class="eyebrow">Konfiguracja</p><h1>Ustawienia</h1></div></div>
+  ${contactPanelHtml()}
   <section class="panel"><h2>Plany i czytanki startowe</h2><p class="small muted">Wczytuje uczniów-maturzystów, ich plany lekcji, czytanki i materiały na lekcje. Istniejące zapisy (zrobione lekcje, notatki, wyniki) zostają. Plany zostaną nadpisane wersją z pliku.</p>
   <div class="chips"><button class="btn primary" data-act="seed">Wczytaj plany, czytanki i materiały</button></div></section>
-  <section class="panel"><h2>Import z poprzedniej aplikacji</h2><p class="small muted">Wgraj plik <b>dane-startowe.json</b>. Przeniesie uczniów, lekcje z kalendarza, wpłaty, dane do przelewu i plany maturzystów. Import możesz powtórzyć – nic się nie zdubluje.</p>
+  <section class="panel"><h2>Import z poprzedniej aplikacji</h2><p class="small muted">Wgraj plik <b>przeniesienie-ze-starej-aplikacji.json</b>. Przeniesie lekcje z kalendarza, wpłaty, zaległości i dane kontaktowe uczniów. <b>Uwaga:</b> lekcje i wpłaty w tej aplikacji zostaną zastąpione tymi z pliku, więc zrób to raz, zanim zaczniesz dodawać tu nowe lekcje.</p>
   <label class="f">Plik z danymi<input type="file" id="importFile" accept=".json,application/json"></label><p class="small muted" id="importStatus"></p></section>
   <section class="panel"><h2>Link dla uczniów</h2><pre class="copy">${esc(APP_URL)}</pre></section>
   ${B.demo ? `<section class="panel"><h2>Tryb podglądu</h2><p class="small muted">Dane zapisują się tylko w tej przeglądarce. Po połączeniu z Firebase znikną z aplikacji i zaczniesz na czysto.</p><div><button class="btn" data-act="wipe">Wyczyść dane podglądu</button></div></section>` : ""}`;
@@ -632,6 +602,426 @@ async function seedAll() {
   S.busy = false; await loadAdmin(); toast("Wczytano plany i czytanki"); render();
 }
 
+/* ================= KOREPETYCJE: kalendarz, dziś, uczniowie, płatności (przeniesione z aplikacji dla korepetytorki) ================= */
+const DOWS = ["pon", "wt", "śr", "czw", "pt", "sob", "nd"];
+const MONN = ["styczeń", "luty", "marzec", "kwiecień", "maj", "czerwiec", "lipiec", "sierpień", "wrzesień", "październik", "listopad", "grudzień"];
+const MONG = ["stycznia", "lutego", "marca", "kwietnia", "maja", "czerwca", "lipca", "sierpnia", "września", "października", "listopada", "grudnia"];
+const SUBJ_UP = { mat: "Matematyka", ang: "Angielski" }, SUBJ_SHORT = { mat: "mat", ang: "ang" }, LVL = { PP: "podstawa", PR: "rozszerzenie" };
+const STATUS = { planned: "zaplanowana", done: "odbyta", cancelled: "odwołana", moved: "przełożona" };
+const STATUS_CLS = { planned: "acc", done: "ok", cancelled: "", moved: "warn" };
+const parseD = s => new Date(s + "T12:00:00");
+const addDays = (s, n) => { const d = parseD(s); d.setDate(d.getDate() + n); return iso(d); };
+const mondayOf = s => addDays(s, -((parseD(s).getDay() + 6) % 7));
+const longDate = s => parseD(s).toLocaleDateString("pl-PL", { weekday: "long", day: "numeric", month: "long" });
+const monthLabel = ym => { const [y, m] = ym.split("-").map(Number); return `${MONN[m - 1]} ${y}`; };
+const byDT = (a, b) => (a.date + (a.time || "")).localeCompare(b.date + (b.time || ""));
+const plural = (n, a, b, c) => n === 1 ? a : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14)) ? b : c;
+const num = v => { const x = parseFloat(String(v ?? "").replace(",", ".")); return isFinite(x) ? Math.round(x * 100) / 100 : 0; };
+const subjectsOf = s => { if (!s) return []; if (Array.isArray(s.subjects) && s.subjects.length) return s.subjects; return s.subject ? [{ subject: s.subject, level: s.level || "PP", rate: Number(s.rate) || 0 }] : []; };
+const rateFor = (s, subj) => { const a = subjectsOf(s); const x = a.find(y => y.subject === subj) || a[0]; return x ? Number(x.rate) || 0 : 0; };
+const lessonSubj = l => l.subject || (subjectsOf(S.data.students[l.studentId])[0] || {}).subject || "";
+const multiSubj = sid => subjectsOf(S.data.students[sid]).length > 1;
+const sName = sid => (S.data.students[sid] || {}).name || "?";
+const lzName = l => sName(l.studentId) + (multiSubj(l.studentId) ? " (" + (SUBJ_SHORT[lessonSubj(l)] || "") + ")" : "");
+const lessonsArr = () => Object.values(S.data.lessons || {});
+const activeStudents = (all) => Object.values(S.data.students).filter(s => all || !s.archived).sort((a, b) => a.name.localeCompare(b.name, "pl"));
+const studentOpts = sel => activeStudents().map(s => `<option value="${s.id}" ${s.id === sel ? "selected" : ""}>${esc(s.name)}</option>`).join("");
+const opts = (o, sel) => Object.entries(o).map(([k, v]) => `<option value="${k}" ${k === sel ? "selected" : ""}>${esc(v)}</option>`).join("");
+const statusChip = st => `<span class="chip ${STATUS_CLS[st] || ""}">${STATUS[st] || st}</span>`;
+const balFor = sid => balanceOf(lessonsArr().filter(l => l.studentId === sid), Object.values(S.data.payments || {}).filter(p => p.studentId === sid));
+const panel = (title, inner, sub, acts) => `<section class="panel"><div class="phead"><h2>${title}</h2>${acts || ""}</div>${sub ? `<p class="small muted">${sub}</p>` : ""}${inner}</section>`;
+const emptyP = t => `<p class="empty">${t}</p>`;
+const schoolYearEnd = () => { const d = new Date(); const y = d.getMonth() >= 7 ? d.getFullYear() + 1 : d.getFullYear(); return `${y}-06-26`; };
+const endTime = (t, dur) => { const [h, m] = (t || "00:00").split(":").map(Number); const x = h * 60 + m + (Number(dur) || 60); return { mins: x, str: `${pad(Math.floor(x % 1440 / 60))}:${pad(x % 60)}` }; };
+const settings = () => S.data.settings || {};
+
+async function putDoc(c, id, data) { await B.set(c, id, data); (S.data[c] = S.data[c] || {})[id] = { id, ...data }; }
+async function patchDoc(c, id, d) { await B.update(c, id, d); S.data[c][id] = { ...(S.data[c][id] || { id }), ...d }; }
+async function delDoc(c, id) { await B.del(c, id); delete S.data[c][id]; }
+
+function openModal({ title, body, submit, foot = "", wide = false, onMount, onSubmit }) {
+  const ov = document.createElement("div"); ov.className = "ov";
+  ov.innerHTML = `<div class="modal ${wide ? "wide" : ""}" role="dialog" aria-modal="true"><header><h2>${esc(title)}</h2><button class="x" type="button" data-x aria-label="Zamknij">×</button></header>
+  <form class="mb" novalidate>${body}<footer style="padding:0;border:0;justify-content:space-between"><span class="acts">${foot}</span><span class="acts"><button class="btn" type="button" data-x>Anuluj</button>${submit ? `<button class="btn primary" type="submit">${esc(submit)}</button>` : ""}</span></footer></form></div>`;
+  const close = () => { ov.remove(); render(); };
+  ov.addEventListener("click", e => { if (e.target === ov || e.target.closest("[data-x]")) close(); });
+  const f = ov.querySelector("form");
+  f.addEventListener("submit", async e => {
+    e.preventDefault(); const btn = f.querySelector("[type=submit]"); if (btn) btn.disabled = true;
+    try { if (await onSubmit(new FormData(f), f)) close(); } catch (err) { toast(errMsg(err)); }
+    if (btn) btn.disabled = false;
+  });
+  document.body.appendChild(ov); onMount && onMount(f, ov);
+  const first = f.querySelector("input:not([type=hidden]),select,textarea"); if (first && !("ontouchstart" in window)) first.focus();
+  return { ov, close };
+}
+
+/* ---------- automatyczne odhaczanie (jak w starej aplikacji: po północy) ---------- */
+let autoBusy = false;
+async function autoComplete() {
+  if (!S.user || S.user.role !== "admin" || autoBusy || !S.data || !S.data.lessons) return;
+  const t = today(); const due = lessonsArr().filter(l => l.status === "planned" && l.date < t);
+  if (!due.length) return;
+  autoBusy = true; UNDO.off = true;
+  try { for (const l of due) { const d = { status: "done", autoDone: true, updatedAt: new Date().toISOString() }; await B.update("lessons", l.id, d); Object.assign(S.data.lessons[l.id], d); } }
+  catch (e) { console.warn("auto", e); }
+  UNDO.off = false; autoBusy = false;
+}
+let lastDay = today();
+setInterval(async () => { if (today() !== lastDay) { lastDay = today(); await autoComplete(); if (S.user && S.user.role === "admin" && !document.querySelector(".ov")) render(); } }, 60000);
+
+/* ---------- wiersz lekcji ---------- */
+function lessonRow(l, { quick = false, showDate = false, showName = true } = {}) {
+  const struck = l.status === "moved" || l.status === "cancelled";
+  return `<div class="row${struck ? " struck" : ""}"><span class="time">${showDate ? esc(fmtDate(l.date)) + " · " : ""}${esc(l.time || "")}</span>
+  <span class="grow"><button class="link" type="button" data-act="editLesson" data-id="${l.id}">${showName ? esc(lzName(l)) : `${esc(SUBJ[lessonSubj(l)] || "")} · ${l.duration || 60} min`}</button>
+  <span class="small muted">${showName ? `${l.duration || 60} min · ` : ""}${struck ? "nie liczy się do płatności" : zl(Number(l.price) || 0)}${l.note ? " · " + esc(l.note.split("\n").pop()) : ""}</span></span>
+  ${statusChip(l.status)}${quick && l.status === "planned" ? `<button class="btn sm" data-act="setStatus" data-id="${l.id}" data-s="done">Odbyta</button><button class="btn sm ghost" data-act="moveLesson" data-id="${l.id}">Przełóż</button><button class="btn sm ghost" data-act="setStatus" data-id="${l.id}" data-s="cancelled">Odwołana</button>` : ""}</div>`;
+}
+
+/* ---------- Dziś ---------- */
+function renderDzis() {
+  const t = today(); const L = lessonsArr();
+  const todayL = L.filter(l => l.date === t).sort(byDT);
+  const tomorrow = L.filter(l => l.date === addDays(t, 1) && l.status === "planned").sort(byDT);
+  const weekAgo = addDays(t, -7);
+  const autoD = L.filter(l => l.autoDone && l.status === "done" && l.date >= weekAgo && l.date < t).sort(byDT).reverse();
+  const overdue = Object.values(S.data.assignments).filter(a => a.due && a.due < t && !S.data.results[a.id] && S.data.students[a.studentId] && !S.data.students[a.studentId].archived).sort((a, b) => a.due.localeCompare(b.due));
+  const debt = activeStudents().map(s => [s, balFor(s.id).bal]).filter(x => x[1] > 0).sort((a, b) => b[1] - a[1]);
+  return `<div class="head"><div><p class="eyebrow">${esc(longDate(t))}</p><h1>Dziś</h1></div><div class="acts"><button class="btn primary" data-act="newLesson" data-date="${t}">+ Lekcja</button><button class="btn" data-act="newPayment">+ Wpłata</button></div></div>
+  <div class="grid2">
+  ${panel("Lekcje dzisiaj", todayL.length ? `<div class="list">${todayL.map(l => lessonRow(l, { quick: true })).join("")}</div>` : emptyP("Dziś bez lekcji."))}
+  ${panel("Jutro", tomorrow.length ? `<div class="list">${tomorrow.map(l => lessonRow(l)).join("")}</div>` : emptyP("Jutro bez lekcji."))}
+  ${panel("Oznaczone automatycznie", autoD.length ? `<div class="list">${autoD.map(l => `<div class="row"><span class="time">${esc(fmtDate(l.date))} · ${esc(l.time)}</span><span class="grow"><button class="link" type="button" data-act="editLesson" data-id="${l.id}">${esc(lzName(l))}</button><span class="small muted">${zl(Number(l.price) || 0)}</span></span>${statusChip(l.status)}<button class="btn sm ghost" data-act="setStatus" data-id="${l.id}" data-s="cancelled">Jednak odwołana</button></div>`).join("")}</div>` : emptyP("W ostatnim tygodniu nic nie oznaczyło się samo."), "Lekcje, których nie oznaczyłaś, po północy zmieniają się na odbyte i nalicza się płatność. Jeśli któraś się nie odbyła, popraw ją tutaj.")}
+  ${panel("Zaległe płatności", debt.length ? `<div class="list">${debt.map(([s, b]) => `<div class="row"><span class="grow"><button class="link" type="button" data-act="stOpen" data-id="${s.id}">${esc(s.name)}</button></span><b style="color:var(--bad)">${zl(b)}</b><button class="btn sm" data-act="newPayment" data-sid="${s.id}">+ Wpłata</button></div>`).join("")}</div>` : emptyP("Nikt nie zalega z płatnością."))}
+  ${panel("Zadania po terminie", overdue.length ? `<div class="list">${overdue.map(a => `<div class="row"><span class="grow"><button class="link" type="button" data-act="stOpen" data-id="${a.studentId}">${esc(sName(a.studentId))}</button><span class="small muted">${esc(taskTitle(a))}</span></span><span class="chip bad">termin ${esc(fmtDate(a.due))}</span></div>`).join("")}</div>` : emptyP("Brak zaległych zadań."))}
+  </div>`;
+}
+
+/* ---------- Kalendarz ---------- */
+function renderKalendarz() {
+  S.calMode = S.calMode || (window.innerWidth < 700 ? "week" : "week"); S.calAnchor = S.calAnchor || today();
+  const a = S.calAnchor, t = today(); const L = lessonsArr(); let body, label;
+  const lz = l => `<button class="lz ${l.status}" data-act="editLesson" data-id="${l.id}"><b>${esc(l.time || "")}</b> ${esc(lzName(l))}</button>`;
+  if (S.calMode === "week") {
+    const m = mondayOf(a); const days = [...Array(7)].map((_, i) => addDays(m, i));
+    label = `${fmtDate(days[0])} – ${fmtDate(days[6])} ${parseD(days[6]).getFullYear()}`;
+    body = `<div class="week">${days.map((d, i) => { const ls = L.filter(l => l.date === d).sort(byDT); return `<section class="day ${d === t ? "today" : ""}"><h3><span>${DOWS[i]} ${parseD(d).getDate()}</span><button class="add" data-act="newLesson" data-date="${d}" aria-label="Dodaj lekcję: ${esc(fmtDate(d))}">+</button></h3>${ls.map(lz).join("")}</section>`; }).join("")}</div>`;
+  } else {
+    const ad = parseD(a); const first = iso(new Date(ad.getFullYear(), ad.getMonth(), 1)); const start = mondayOf(first);
+    label = monthLabel(first.slice(0, 7));
+    const cells = []; for (let i = 0; i < 42; i++) { const d = addDays(start, i); if (i >= 35 && parseD(d).getMonth() !== ad.getMonth()) break; cells.push(d); }
+    body = `<div class="month">${DOWS.map(x => `<div class="mh">${x}</div>`).join("")}${cells.map(d => { const ls = L.filter(l => l.date === d).sort(byDT); const out = parseD(d).getMonth() !== ad.getMonth(); const act = ls.filter(l => l.status !== "moved" && l.status !== "cancelled").length;
+      return `<button class="mday ${out ? "out" : ""} ${d === t ? "today" : ""}" data-act="gotoWeek" data-date="${d}"><span class="d">${parseD(d).getDate()}</span>${ls.slice(0, 3).map(l => `<span class="e ${l.status}">${esc(l.time || "")} ${esc(lzName(l))}</span>`).join("")}${ls.length > 3 ? `<span class="e">+${ls.length - 3}</span>` : ""}${act ? `<span class="cnt">${act} ${plural(act, "lekcja", "lekcje", "lekcji")}</span>` : ""}</button>`; }).join("")}</div>`;
+  }
+  return `<div class="head"><div><p class="eyebrow">Kalendarz</p><h1>Lekcje</h1></div><div class="acts"><button class="btn primary" data-act="newLesson" data-date="${a >= t ? a : t}">+ Lekcja</button></div></div>
+  <div class="toolbar"><button class="btn sm" data-act="calMove" data-d="-1" aria-label="Wstecz">‹</button><button class="btn sm" data-act="calMove" data-d="1" aria-label="Dalej">›</button><button class="btn sm ghost" data-act="calToday">Dziś</button><span class="lbl">${esc(label)}</span><span style="flex:1"></span><div class="seg" role="group" aria-label="Widok"><button data-act="calMode" data-m="week" aria-pressed="${S.calMode === "week"}">Tydzień</button><button data-act="calMode" data-m="month" aria-pressed="${S.calMode === "month"}">Miesiąc</button></div></div>
+  ${body}
+  <p class="small muted">Kliknij lekcję, żeby ją przełożyć, odwołać, zmienić cenę albo dodać notatkę. Plus przy dniu dodaje lekcję.</p>`;
+}
+
+function gcalUrl(l, st, until) {
+  const s = l.date.replace(/-/g, "") + "T" + (l.time || "00:00").replace(":", "") + "00"; const e = endTime(l.time, l.duration);
+  const ed = (e.mins >= 1440 ? addDays(l.date, 1) : l.date).replace(/-/g, "") + "T" + e.str.replace(":", "") + "00";
+  const p = new URLSearchParams({ action: "TEMPLATE", text: `Korepetycje: ${st ? st.name : ""}${st ? " (" + (SUBJ_UP[lessonSubj(l)] || "") + ")" : ""}`, dates: `${s}/${ed}`, ctz: "Europe/Warsaw", details: "Lekcja PEWNY EGZAMIN" });
+  if (st && st.email) p.set("add", st.email);
+  if (until) p.set("recur", "RRULE:FREQ=WEEKLY;UNTIL=" + until.replace(/-/g, "") + "T235959Z");
+  return "https://calendar.google.com/calendar/render?" + p.toString();
+}
+
+function lessonForm(id, pre = {}) {
+  if (!activeStudents().length && !id) { toast("Najpierw dodaj ucznia."); return; }
+  const l = id ? S.data.lessons[id] : { date: pre.date || today(), time: "16:00", duration: 60, status: "planned", studentId: pre.sid || "", note: "" };
+  const st = id ? S.data.students[l.studentId] : null;
+  const later = id && l.seriesId ? lessonsArr().filter(x => x.seriesId === l.seriesId && x.date > l.date && x.status === "planned").sort(byDT) : [];
+  let foot = "";
+  if (id) {
+    const series = l.seriesId ? lessonsArr().filter(x => x.seriesId === l.seriesId).sort(byDT) : [];
+    foot = `<button type="button" class="btn ghost danger" data-lact="del">Usuń</button>${l.status === "planned" ? `<button type="button" class="btn" data-lact="move">Przełóż</button>` : ""}<a class="btn" href="${esc(gcalUrl(l, st))}" target="_blank" rel="noopener">Kalendarz Google</a>${series.length > 1 ? `<a class="btn" href="${esc(gcalUrl(series[0], st, series[series.length - 1].date))}" target="_blank" rel="noopener">Cała seria w Kalendarzu</a>` : ""}`;
+  }
+  const m = openModal({
+    title: id ? `Lekcja: ${sName(l.studentId)}` : "Nowa lekcja", foot, submit: id ? "Zapisz" : "Dodaj lekcję", body: `
+  <label class="f">Uczeń<select name="studentId" required>${id && !S.data.students[l.studentId] ? `<option value="${esc(l.studentId)}">${esc(sName(l.studentId))}</option>` : ""}${!id && !l.studentId ? `<option value="">Wybierz ucznia…</option>` : ""}${id && S.data.students[l.studentId] && S.data.students[l.studentId].archived ? `<option value="${l.studentId}" selected>${esc(sName(l.studentId))}</option>` : ""}${studentOpts(l.studentId)}</select></label>
+  <label class="f">Przedmiot<select name="subject" data-lsubj></select></label>
+  <div class="frow"><label class="f">Data<input name="date" type="date" required value="${esc(l.date)}"></label><label class="f">Godzina<input name="time" type="time" required value="${esc(l.time || "")}"></label><label class="f">Czas (min)<input name="duration" type="number" min="15" step="5" value="${esc(l.duration || 60)}"></label></div>
+  <div class="frow">${id ? `<label class="f">Status<select name="status">${opts(STATUS, l.status)}</select></label>` : ""}<label class="f">Cena (zł)<input name="price" type="number" min="0" step="1" inputmode="decimal" value="${id ? esc(l.price ?? "") : ""}" placeholder="stawka ucznia"></label></div>
+  ${later.length ? `<fieldset><legend>Zmiany zastosuj do</legend><label class="check"><input type="radio" name="scope" value="one" checked> tylko tej lekcji</label><label class="check"><input type="radio" name="scope" value="series"> tej i ${later.length} ${plural(later.length, "kolejnej", "kolejnych", "kolejnych")} z serii (do ${esc(fmtDate(later[later.length - 1].date))})</label><span class="small muted">W całej serii zmienią się godzina, czas trwania, przedmiot, cena i dzień tygodnia. Notatka i status zmienią się tylko w tej lekcji.</span></fieldset>` : ""}
+  ${id ? "" : `<label class="check"><input type="checkbox" name="repeat" data-lrep> Powtarzaj co tydzień</label><label class="f" data-luntil hidden>Do kiedy<input name="until" type="date" value="${schoolYearEnd()}"></label>`}
+  <label class="f">Notatka z lekcji<textarea name="note" rows="3" placeholder="Co przerobiłyście, co na następny raz">${esc(l.note || "")}</textarea></label>`,
+    onMount: f => {
+      const r = f.querySelector("[data-lrep]"); if (r) r.addEventListener("change", () => { f.querySelector("[data-luntil]").hidden = !r.checked; });
+      const ss = f.querySelector("[name=studentId]"), sj = f.querySelector("[data-lsubj]"), pr = f.querySelector("[name=price]");
+      const fill = keep => { const s = S.data.students[ss.value]; const subs = subjectsOf(s); const want = keep || sj.value; sj.innerHTML = subs.length ? subs.map(x => `<option value="${x.subject}" ${x.subject === want ? "selected" : ""}>${esc(SUBJ_UP[x.subject] || "")} (${esc(LVL[x.level] || "")}) · ${esc(zl(Number(x.rate) || 0))}</option>`).join("") : `<option value="">—</option>`; pr.placeholder = s ? "stawka: " + zl(rateFor(s, sj.value)) : "stawka ucznia"; };
+      fill(id ? lessonSubj(l) : "");
+      const upd = () => { const s = S.data.students[ss.value]; if (!s) { pr.value = ""; return; } pr.value = rateFor(s, sj.value); pr.placeholder = "stawka: " + zl(rateFor(s, sj.value)); };
+      if (!id) upd();
+      ss.addEventListener("change", () => { fill(""); upd(); }); sj.addEventListener("change", upd);
+      f.addEventListener("click", async e => {
+        const b = e.target.closest("[data-lact]"); if (!b) return;
+        if (b.dataset.lact === "move") { m.ov.remove(); moveForm(id); }
+        else if (b.dataset.lact === "del") {
+          const fut = l.seriesId ? lessonsArr().filter(x => x.seriesId === l.seriesId && x.date >= l.date && x.status === "planned" && x.id !== id) : [];
+          m.ov.remove();
+          if (fut.length) {
+            openModal({ title: "Usuń lekcję", submit: "Usuń", body: `<p>Usunąć tylko tę lekcję czy też ${fut.length} ${plural(fut.length, "kolejną zaplanowaną", "kolejne zaplanowane", "kolejnych zaplanowanych")} z tej serii?</p><label class="check"><input type="radio" name="w" value="one" checked> tylko tę</label><label class="check"><input type="radio" name="w" value="all"> tę i kolejne z serii</label><p class="small muted">Odbytych lekcji nie usuwam. Jeśli lekcja się nie odbyła, lepiej ustaw ją jako odwołaną.</p>`,
+              onSubmit: async fd => { await delDoc("lessons", id); if (fd.get("w") === "all") for (const x of fut) await delDoc("lessons", x.id); toast("Usunięto"); return true; } });
+          } else if (await ask("Usunąć tę lekcję? Jeśli się nie odbyła, lepiej ustaw ją jako odwołaną.", "Usuń")) { await delDoc("lessons", id); toast("Usunięto"); render(); } else render();
+        }
+      });
+    },
+    onSubmit: async fd => {
+      const sid = String(fd.get("studentId") || ""); if (!sid) { toast("Wybierz ucznia."); return false; }
+      const date = String(fd.get("date")), time = String(fd.get("time")); if (!date || !time) { toast("Podaj datę i godzinę."); return false; }
+      const subject = String(fd.get("subject") || "") || (subjectsOf(S.data.students[sid])[0] || {}).subject || "";
+      const priceIn = String(fd.get("price") || "").trim(); const price = priceIn ? num(priceIn) : rateFor(S.data.students[sid], subject);
+      const { id: _x, ...old } = id ? l : {};
+      const base = { ...old, studentId: sid, subject, date, time, duration: num(fd.get("duration")) || 60, price, note: String(fd.get("note") || "").trim(), status: id ? String(fd.get("status")) : "planned", updatedAt: new Date().toISOString() };
+      if (id && base.status !== "done") base.autoDone = false;
+      if (id) {
+        await putDoc("lessons", id, base);
+        if (fd.get("scope") === "series" && later.length) {
+          const shift = Math.round((parseD(date) - parseD(l.date)) / 864e5); let n = 0;
+          for (const x of later) { const { id: xid, ...rest } = x; await putDoc("lessons", xid, { ...rest, studentId: sid, subject, time, duration: base.duration, price, date: addDays(x.date, shift), updatedAt: base.updatedAt }); n++; }
+          toast(`Zmieniono ${n + 1} ${plural(n + 1, "lekcję", "lekcje", "lekcji")} w serii`); return true;
+        }
+        toast("Zapisano lekcję"); return true;
+      }
+      if (fd.get("repeat")) {
+        const until = String(fd.get("until") || ""); if (!until || until < date) { toast("Data końca musi być po pierwszej lekcji."); return false; }
+        const seriesId = rid(); let d = date, n = 0; const batch = [];
+        while (d <= until && n < 60) { batch.push([rid(), { ...base, date: d, seriesId, createdAt: base.updatedAt }]); d = addDays(d, 7); n++; }
+        await B.bulk("lessons", batch); for (const [k, v] of batch) S.data.lessons[k] = { id: k, ...v };
+        toast(`Dodano ${n} ${plural(n, "lekcję", "lekcje", "lekcji")}`); return true;
+      }
+      await putDoc("lessons", rid(), { ...base, createdAt: base.updatedAt }); toast("Dodano lekcję"); return true;
+    }
+  });
+}
+function moveForm(id) {
+  const l = S.data.lessons[id]; if (!l) return;
+  openModal({
+    title: `Przełóż lekcję: ${lzName(l)}`, submit: "Przełóż", body: `
+  <p>Obecny termin: <b>${esc(longDate(l.date))}, ${esc(l.time)}</b></p>
+  <div class="frow"><label class="f">Nowa data<input type="date" name="date" required value="${esc(l.date)}"></label><label class="f">Nowa godzina<input type="time" name="time" required value="${esc(l.time)}"></label></div>
+  <p class="small muted">Lekcja przesunie się w kalendarzu na nowy termin. W notatce zapisze się, skąd została przeniesiona. Uczeń od razu zobaczy nowy termin w aplikacji.</p>`,
+    onSubmit: async fd => {
+      const date = String(fd.get("date") || ""), time = String(fd.get("time") || "");
+      if (!date || !time) { toast("Podaj nową datę i godzinę."); return false; }
+      if (date === l.date && time === l.time) { toast("Wybierz inny termin."); return false; }
+      const { id: _i, seriesId, movedTo, movedToDate, movedToTime, ...rest } = l;
+      await putDoc("lessons", id, { ...rest, date, time, status: "planned", autoDone: false, movedFromDate: l.movedFromDate || l.date, note: (l.note ? l.note + "\n" : "") + `Przełożona z ${fmtDate(l.date)}, ${l.time}`, updatedAt: new Date().toISOString() });
+      S.calAnchor = date; toast(`Przełożono na ${fmtDate(date)}, ${time}`); return true;
+    }
+  });
+}
+
+/* ---------- Uczniowie ---------- */
+function studentForm(sid) {
+  const s = sid ? S.data.students[sid] : {};
+  openModal({
+    title: sid ? "Edytuj ucznia" : "Nowy uczeń", submit: sid ? "Zapisz zmiany" : "Dodaj ucznia",
+    foot: sid ? `<button type="button" class="btn ghost" data-arch>${s.archived ? "Przywróć z archiwum" : "Przenieś do archiwum"}</button>` : "", body: `
+  <label class="f">Imię<input name="name" required value="${esc(s.name || "")}"></label>
+  <fieldset><legend>Przedmioty i stawki</legend>${Object.entries(SUBJ_UP).map(([k, v]) => { const x = subjectsOf(s).find(y => y.subject === k); return `<div class="frow" style="align-items:end"><label class="check"><input type="checkbox" name="subj_${k}" ${x || (!sid && k === "mat") ? "checked" : ""}> ${v}</label><label class="f">Poziom<select name="lvl_${k}">${opts(LVL, x ? x.level : "PP")}</select></label><label class="f">Stawka (zł)<input name="rate_${k}" type="number" min="0" step="1" inputmode="decimal" value="${x ? esc(x.rate) : ""}"></label></div>`; }).join("")}</fieldset>
+  <div class="frow"><label class="f">Klasa<input name="klasa" value="${esc(s.klasa || "")}" placeholder="np. 3 LO"></label><label class="f">Cel (opcjonalnie)<input name="goal" value="${esc(s.goal || "")}" placeholder="np. 70–80%"></label></div>
+  <div class="frow"><label class="f">Telefon ucznia<input name="phone" type="tel" value="${esc(s.phone || "")}"></label><label class="f">E-mail ucznia<input name="email" type="email" value="${esc(s.email || "")}"></label></div>
+  <div class="frow"><label class="f">Telefon rodzica<input name="parentPhone" type="tel" value="${esc(s.parentPhone || "")}"></label><label class="f">E-mail rodzica<input name="parentEmail" type="email" value="${esc(s.parentEmail || "")}"></label></div>
+  <label class="f">Notatki (widzisz je tylko ty)<textarea name="notes" rows="3">${esc(s.notes || "")}</textarea></label>`,
+    onMount: (f, ov) => { const a = f.querySelector("[data-arch]"); if (a) a.addEventListener("click", async () => { await patchDoc("students", sid, { archived: !s.archived }); toast(s.archived ? "Przywrócono" : "Przeniesiono do archiwum"); ov.remove(); render(); }); },
+    onSubmit: async fd => {
+      const name = String(fd.get("name") || "").trim(); if (!name) { toast("Wpisz imię ucznia."); return false; }
+      const g = k => String(fd.get(k) || "").trim();
+      const subjects = Object.keys(SUBJ_UP).filter(k => fd.get("subj_" + k)).map(k => ({ subject: k, level: g("lvl_" + k), rate: num(fd.get("rate_" + k)) }));
+      if (!subjects.length) { toast("Zaznacz co najmniej jeden przedmiot."); return false; }
+      const now = new Date().toISOString();
+      const data = { name, subjects, subject: subjects[0].subject, level: subjects[0].level, rate: subjects[0].rate, subjectLabel: subjects.map(x => SUBJ[x.subject]).join(" + "), phone: g("phone"), email: g("email"), parentPhone: g("parentPhone"), parentEmail: g("parentEmail"), notes: g("notes"), klasa: g("klasa"), goal: g("goal"), updatedAt: now };
+      if (sid) await patchDoc("students", sid, data); else await putDoc("students", rid(), { ...data, createdAt: now });
+      toast(sid ? "Zapisano zmiany" : "Dodano ucznia"); return true;
+    }
+  });
+}
+function renderUczniowie() {
+  const show = S.showArch ? activeStudents(true).filter(s => s.archived) : activeStudents();
+  const narch = activeStudents(true).filter(s => s.archived).length;
+  const t = today();
+  return `<div class="head"><div><p class="eyebrow">${show.length} ${plural(show.length, "uczeń", "uczniów", "uczniów")}${S.showArch ? " w archiwum" : ""}</p><h1>Uczniowie</h1></div><div class="acts"><button class="btn primary" data-act="newStudent">+ Uczeń</button></div></div>
+  ${searchBox("ucz", "Szukaj ucznia")}
+  <div class="list">${show.map(s => { const b = balFor(s.id); const nx = lessonsArr().filter(l => l.studentId === s.id && l.status === "planned" && l.date >= t).sort(byDT)[0]; const open = Object.values(S.data.assignments).filter(a => a.studentId === s.id && !S.data.results[a.id]).length;
+    return `<button class="row" data-act="stOpen" data-id="${s.id}" data-s-ucz="${esc(norm(s.name + " " + (s.klasa || "")))}"><span class="grow"><b>${esc(s.name)}</b><span class="small muted">${esc(subjectsOf(s).map(x => SUBJ[x.subject] + " · " + zl(Number(x.rate) || 0)).join(" + "))}${s.klasa ? " · " + esc(s.klasa) : ""}${nx ? " · następna: " + esc(fmtDate(nx.date) + ", " + nx.time) : ""}</span></span>
+    ${open ? `<span class="chip">${open} ${plural(open, "zadanie", "zadania", "zadań")}</span>` : ""}${s.loginEmail ? '<span class="chip ok">ma konto</span>' : ""}<span class="chip ${b.bal > 0 ? "bad" : "ok"}">${b.bal > 0 ? "do zapłaty " + zl(b.bal) : b.bal < 0 ? "nadpłata " + zl(-b.bal) : "opłacone"}</span></button>`; }).join("") || emptyP("Brak uczniów.")}</div>
+  ${narch || S.showArch ? `<p><button class="btn sm ghost" data-act="toggleArch">${S.showArch ? "← Aktywni uczniowie" : `Archiwum (${narch})`}</button></p>` : ""}`;
+}
+function studentModal(s) {
+  const ov = document.createElement("div"); ov.className = "ov";
+  const draw = () => {
+    s = S.data.students[s.id] || s;
+    const t = today(); const ls = lessonsArr().filter(l => l.studentId === s.id).sort(byDT);
+    const up = ls.filter(l => l.date >= t && l.status === "planned").slice(0, 5), past = ls.filter(l => l.date < t || l.status !== "planned" && l.date <= t).reverse().slice(0, 12);
+    const P = Object.values(S.data.payments).filter(p => p.studentId === s.id).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    const b = balFor(s.id);
+    const as = Object.values(S.data.assignments).filter(a => a.studentId === s.id).sort((a, b) => (b.due || "").localeCompare(a.due || ""));
+    const sec = S.stSec || "zad";
+    const tabsH = [["zad", "Zadania"], ["lek", "Lekcje"], ["wpl", "Płatności"], ["dane", "Dane"]].map(([k, l]) => `<button type="button" data-msec="${k}" aria-selected="${sec === k}">${l}</button>`).join("");
+    let inner = "";
+    if (sec === "zad") inner = `<form class="panel" style="padding:14px 16px;display:grid;gap:12px" id="stAssign"><h3>Zadaj zadanie</h3>${assignFormHtml(s.id)}</form>
+    <section><h3>Zadania ucznia</h3>${as.length ? `<div class="list">${as.map(a => { const r = S.data.results[a.id];
+      return `<div class="row"><span class="grow"><b>${esc(taskTitle(a))}</b><span class="small muted">${a.kind === "custom" ? "zadanie własne" : "test"}${a.due ? " · termin: " + fmtDate(a.due) : ""}</span></span>${r ? (a.kind === "custom" ? '<span class="chip ok">zrobione</span>' : `<span class="chip ${pct(r.score, r.max) >= 70 ? "ok" : pct(r.score, r.max) >= 50 ? "warn" : "bad"}">${r.score}/${r.max}</span>`) : (a.kind === "custom" ? `<button class="btn sm" type="button" data-mact="done" data-id="${a.id}">Odhacz</button>` : '<span class="chip">czeka</span>')}${r ? "" : `<button class="btn sm ghost" type="button" data-mact="del" data-id="${a.id}">usuń</button>`}</div>`; }).join("")}</div>` : '<p class="empty">Nic jeszcze nie zadano.</p>'}</section>`;
+    else if (sec === "lek") inner = `<div class="acts"><button class="btn sm primary" type="button" data-mact="newLesson">+ Lekcja</button></div>
+    <section><h3>Najbliższe</h3>${up.length ? `<div class="list">${up.map(l => lessonRow(l, { showDate: true, showName: false })).join("")}</div>` : emptyP("Brak zaplanowanych lekcji.")}</section>
+    <section><h3>Historia</h3>${past.length ? `<div class="list">${past.map(l => lessonRow(l, { showDate: true, showName: false })).join("")}</div>` : emptyP("Jeszcze nic.")}</section>`;
+    else if (sec === "wpl") inner = `<div class="stats">${balanceBlock(b)}</div><div class="acts"><button class="btn sm primary" type="button" data-mact="newPayment">+ Wpłata</button><button class="btn sm" type="button" data-mact="newCharge">+ Zaległość</button></div>
+    ${P.length ? `<div class="list">${P.map(p => `<div class="row"><span class="grow"><b>${isCharge(p) ? "zaległość " : ""}${zl(Number(p.amount) || 0)}</b><span class="small muted">${esc(fmtDate(p.date))}${p.method ? " · " + esc(p.method) : ""}${p.note ? " · " + esc(p.note) : ""}</span></span>${isCharge(p) ? '<span class="chip warn">doliczone</span>' : '<span class="chip ok">wpłata</span>'}<button class="btn sm ghost" type="button" data-mact="delPay" data-id="${p.id}">usuń</button></div>`).join("")}</div>` : emptyP("Brak wpłat.")}`;
+    else inner = `<dl class="kv">${[["Przedmioty", subjectsOf(s).map(x => `${SUBJ[x.subject]} (${LVL[x.level] || ""}) · ${zl(Number(x.rate) || 0)}`).join(", ")], ["Klasa", s.klasa], ["Cel", s.goal], ["Telefon", s.phone], ["E-mail", s.email], ["Telefon rodzica", s.parentPhone], ["E-mail rodzica", s.parentEmail], ["Konto w aplikacji", s.loginEmail || "brak"], ["Notatki", s.notes]].filter(x => x[1]).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>
+    <div class="acts"><button class="btn sm primary" type="button" data-mact="edit">Edytuj dane</button>${s.loginEmail ? "" : `<button class="btn sm mustard" type="button" data-mact="login">Utwórz konto w aplikacji</button>`}</div>`;
+    ov.innerHTML = `<div class="modal wide" role="dialog" aria-modal="true"><header><div><h2>${esc(s.name)}</h2><span class="small muted">${esc(subjectsOf(s).map(x => SUBJ[x.subject]).join(" + "))}${s.klasa ? " · " + esc(s.klasa) : ""} · <span style="color:var(--${b.bal > 0 ? "bad" : "ok"})">${b.bal > 0 ? "do zapłaty " + zl(b.bal) : b.bal < 0 ? "nadpłata " + zl(-b.bal) : "opłacone"}</span></span></div><button class="x" data-x aria-label="Zamknij">×</button></header>
+    <div class="mb"><div class="subtabs" role="tablist">${tabsH}</div>${inner}</div></div>`;
+    wireKind(ov);
+    const fa = ov.querySelector("#stAssign"); if (fa) fa.addEventListener("submit", async e => { e.preventDefault(); try { if (await submitAssign(new FormData(e.target))) draw(); } catch (err) { toast(errMsg(err)); } });
+  };
+  ov.addEventListener("click", async e => {
+    if (e.target === ov || e.target.closest("[data-x]")) { ov.remove(); render(); return; }
+    const sb = e.target.closest("[data-msec]"); if (sb) { S.stSec = sb.dataset.msec; draw(); return; }
+    const el = e.target.closest("[data-act=editLesson],[data-act=moveLesson],[data-act=setStatus]");
+    if (el) { e.stopPropagation(); ov.remove(); await handleLessonAct(el); return; }
+    const b = e.target.closest("[data-mact]"); if (!b) return;
+    try {
+      const k = b.dataset.mact;
+      if (k === "done") { await markCustomDone(b.dataset.id); draw(); }
+      else if (k === "del") { if (await ask("Usunąć to zadanie?", "Usuń")) { await delDoc("assignments", b.dataset.id); draw(); } }
+      else if (k === "edit") { ov.remove(); studentForm(s.id); }
+      else if (k === "login") { ov.remove(); loginModal(s); }
+      else if (k === "newLesson") { ov.remove(); lessonForm(null, { sid: s.id }); }
+      else if (k === "newPayment") { ov.remove(); paymentForm(s.id); }
+      else if (k === "newCharge") { ov.remove(); chargeForm(s.id); }
+      else if (k === "delPay") { if (await ask("Usunąć ten wpis?", "Usuń")) { await delDoc("payments", b.dataset.id); draw(); } }
+    } catch (err) { toast(errMsg(err)); }
+  });
+  document.body.appendChild(ov); draw();
+}
+async function handleLessonAct(el) {
+  const act = el.dataset.act, id = el.dataset.id;
+  if (act === "editLesson") lessonForm(id);
+  else if (act === "moveLesson") moveForm(id);
+  else if (act === "setStatus") { const st = el.dataset.s; const d = { status: st, updatedAt: new Date().toISOString() }; if (st !== "done") d.autoDone = false; await patchDoc("lessons", id, d); toast(st === "done" ? "Oznaczono jako odbytą" : st === "cancelled" ? "Lekcja odwołana – nie liczy się do płatności" : "Zapisano"); render(); }
+}
+
+/* ---------- Płatności: formularze ---------- */
+function paymentForm(sid, amt, note) {
+  if (!activeStudents().length) { toast("Najpierw dodaj ucznia."); return; }
+  const def = amt != null ? amt : (sid && balFor(sid).bal > 0 ? balFor(sid).bal : "");
+  openModal({
+    title: "Nowa wpłata", submit: "Dodaj wpłatę", body: `
+  <label class="f">Uczeń<select name="studentId" required>${sid ? "" : `<option value="">Wybierz ucznia…</option>`}${studentOpts(sid)}</select></label>
+  <div class="frow"><label class="f">Kwota (zł)<input name="amount" type="number" min="0" step="0.01" inputmode="decimal" required value="${esc(def)}"></label><label class="f">Data<input name="date" type="date" required value="${today()}"></label><label class="f">Forma<select name="method">${opts({ przelew: "przelew", gotówka: "gotówka", BLIK: "BLIK" }, "przelew")}</select></label></div>
+  <label class="f">Notatka<input name="note" placeholder="np. za listopad" value="${esc(note || "")}"></label>`,
+    onSubmit: async fd => {
+      const s = String(fd.get("studentId") || ""); const amount = num(fd.get("amount"));
+      if (!s) { toast("Wybierz ucznia."); return false; } if (!(amount > 0)) { toast("Wpisz kwotę większą od zera."); return false; }
+      await putDoc("payments", rid(), { studentId: s, amount, date: String(fd.get("date")), method: String(fd.get("method")), note: String(fd.get("note") || "").trim(), createdAt: new Date().toISOString() });
+      toast("Wpłata dodana"); return true;
+    }
+  });
+}
+function chargeForm(sid) {
+  openModal({
+    title: "Zaległa płatność", submit: "Dodaj zaległość", body: `
+  <p class="small muted">Dla nieopłaconych lekcji, których nie ma w kalendarzu. Kwota doliczy się do salda ucznia, a gdy zapłaci, dodaj zwykłą wpłatę.</p>
+  <label class="f">Uczeń<select name="studentId" required>${sid ? "" : `<option value="">Wybierz ucznia…</option>`}${studentOpts(sid)}</select></label>
+  <div class="frow"><label class="f">Liczba lekcji<input name="count" type="number" min="0" step="1" inputmode="numeric" placeholder="np. 4" data-ccount></label><label class="f">Kwota (zł)<input name="amount" type="number" min="0" step="0.01" inputmode="decimal" required data-camt></label></div>
+  <div class="frow"><label class="f">Data<input name="date" type="date" required value="${today()}"></label><label class="f">Opis<input name="note" placeholder="np. 4 lekcje do 26.10"></label></div>`,
+    onMount: f => { const ss = f.querySelector("[name=studentId]"), cn = f.querySelector("[data-ccount]"), am = f.querySelector("[data-camt]"); const calc = () => { const s = S.data.students[ss.value]; if (s && cn.value) am.value = num(cn.value) * rateFor(s); }; cn.addEventListener("input", calc); ss.addEventListener("change", calc); },
+    onSubmit: async fd => {
+      const s = String(fd.get("studentId") || ""); const amount = num(fd.get("amount")); const cnt = num(fd.get("count"));
+      if (!s) { toast("Wybierz ucznia."); return false; } if (!(amount > 0)) { toast("Wpisz kwotę."); return false; }
+      const note = String(fd.get("note") || "").trim() || (cnt ? `${cnt} ${plural(cnt, "lekcja", "lekcje", "lekcji")} do ${fmtDate(String(fd.get("date")))}` : "zaległość");
+      await putDoc("payments", rid(), { kind: "charge", studentId: s, amount, count: cnt || null, date: String(fd.get("date")), note, createdAt: new Date().toISOString() });
+      toast("Zaległość doliczona"); return true;
+    }
+  });
+}
+
+/* ---------- Rozliczenie z góry ---------- */
+function upfront(ym) {
+  const start = ym + "-01"; const [y, m] = ym.split("-").map(Number); const next = iso(new Date(y, m, 1));
+  const L = lessonsArr().filter(l => l.status === "planned" || l.status === "done");
+  const sum = a => Math.round(a.reduce((s, l) => s + (Number(l.price) || 0), 0) * 100) / 100;
+  return activeStudents().map(s => {
+    const mine = L.filter(l => l.studentId === s.id);
+    const inM = mine.filter(l => l.date >= start && l.date < next).sort(byDT);
+    const monthSum = sum(inM); const doneM = sum(inM.filter(l => effStatus(l) === "done")); const before = sum(mine.filter(l => effStatus(l) === "planned" && l.date < start));
+    const adj = Math.round((balFor(s.id).bal - doneM + before) * 100) / 100;
+    const order = subjectsOf(s).map(x => x.subject);
+    const bySubj = [...new Set(inM.map(l => lessonSubj(l)))].sort((a, b) => order.indexOf(a) - order.indexOf(b)).map(k => { const ls = inM.filter(l => lessonSubj(l) === k); return { subject: k, ls, sum: sum(ls) }; });
+    return { id: s.id, s, inM, bySubj, monthSum, adj, pay: Math.round((monthSum + adj) * 100) / 100 };
+  }).filter(r => r.inM.length || Math.abs(r.adj) > 0.004);
+}
+function upMsg(r, ym) {
+  const [y, m] = ym.split("-").map(Number); const ml = monthLabel(ym); const n = r.inM.length;
+  const toKid = S.upTo === "uczen"; const st = settings(); const c = st.contact || {};
+  const subs = [...new Set((r.inM.length ? r.inM.map(l => lessonSubj(l)) : subjectsOf(r.s).map(x => x.subject)))].map(k => ({ mat: "matematyki", ang: "angielskiego" })[k]).filter(Boolean).join(" i ");
+  let t = toKid ? `Cześć ${r.s.name}!\n\n` : `Dzień dobry!\n\n`;
+  t += `Przesyłam rozliczenie korepetycji${subs ? " z " + subs : ""} za ${ml}${toKid ? "" : ` (${r.s.name})`}:\n`;
+  if (r.bySubj.length > 1) { for (const g of r.bySubj) { const k = g.ls.length; const pr = [...new Set(g.ls.map(l => Number(l.price) || 0))]; t += `• ${SUBJ[g.subject] || ""}: ${k} ${plural(k, "lekcja", "lekcje", "lekcji")} (${g.ls.map(l => parseD(l.date).getDate()).join(", ")} ${MONG[m - 1]})${pr.length === 1 ? ` × ${zl(pr[0])}` : ""} – ${zl(g.sum)}\n`; } }
+  else { const pr = [...new Set(r.inM.map(l => Number(l.price) || 0))]; t += `• ${n} ${plural(n, "lekcja", "lekcje", "lekcji")}${n ? ` (${r.inM.map(l => parseD(l.date).getDate()).join(", ")} ${MONG[m - 1]})` : ""}${n > 1 && pr.length === 1 ? ` × ${zl(pr[0])}` : ""} – ${zl(r.monthSum)}\n`; }
+  if (r.adj > 0.004) t += `• zaległość z poprzednich zajęć – ${zl(r.adj)}\n`; else if (r.adj < -0.004) t += `• nadpłata do odjęcia – ${zl(-r.adj)}\n`;
+  if (r.pay <= 0) t += `\nZa ten miesiąc nic nie trzeba dopłacać, wszystko jest już opłacone.`;
+  else {
+    t += `\nDo zapłaty: ${zl(r.pay)}.`;
+    const b = st.bank || {};
+    if (b.account) { const title = (st.titleTpl || "Korepetycje – {imie} – {miesiac}").replace(/\{imie\}/g, r.s.name).replace(/\{miesiac\}/g, ml); t += `\n\nDane do przelewu:\n${b.recipient ? b.recipient + "\n" : ""}${b.account}\nTytuł: ${title}`; }
+  }
+  t += `\n\nWszystkie lekcje i płatności widać też w aplikacji: ${APP_URL}`;
+  const sig = (c.name || "").trim().split(/\s+/)[0];
+  t += `\n\n${toKid ? "Do zobaczenia na zajęciach!" : "Dziękuję i pozdrawiam"}${sig ? "\n" + sig : ""}`;
+  return t;
+}
+function renderZgory() {
+  if (!S.upMonth) { const d = new Date(); const nx = new Date(d.getFullYear(), d.getMonth() + (d.getDate() > 20 ? 1 : 0), 1); S.upMonth = `${nx.getFullYear()}-${pad(nx.getMonth() + 1)}`; }
+  const ym = S.upMonth; const rows = upfront(ym); const total = rows.reduce((s, r) => s + Math.max(0, r.pay), 0);
+  const months = (() => { const d0 = new Date(); const out = []; for (let i = -6; i <= 12; i++) { const d = new Date(d0.getFullYear(), d0.getMonth() + i, 1); out.push(`${d.getFullYear()}-${pad(d.getMonth() + 1)}`); } if (!out.includes(ym)) out.push(ym); return out.sort(); })();
+  const adjCell = a => a > 0.004 ? `<span style="color:var(--bad)">+${zl(a)} zaległość</span>` : a < -0.004 ? `<span style="color:var(--ok)">−${zl(-a)} nadpłata</span>` : "—";
+  return `<div class="head"><div><p class="eyebrow">Rozliczenie z góry</p><h1>${esc(monthLabel(ym))}</h1></div><div class="acts"><div class="seg" role="group" aria-label="Wiadomość do"><button data-act="upTo" data-v="rodzic" aria-pressed="${S.upTo !== "uczen"}">Do rodzica</button><button data-act="upTo" data-v="uczen" aria-pressed="${S.upTo === "uczen"}">Do ucznia</button></div><button class="btn sm" data-act="upMove" data-d="-1" aria-label="Poprzedni miesiąc">‹</button><select id="upmonth" style="width:auto">${months.map(k => `<option value="${k}" ${k === ym ? "selected" : ""}>${esc(monthLabel(k))}</option>`).join("")}</select><button class="btn sm" data-act="upMove" data-d="1" aria-label="Następny miesiąc">›</button></div></div>
+  <div class="stats"><div class="stat"><span class="small muted">Razem do zebrania</span><b>${zl(total)}</b><span class="small muted">${rows.filter(r => r.pay > 0).length} ${plural(rows.filter(r => r.pay > 0).length, "uczeń", "uczniów", "uczniów")}</span></div><div class="stat"><span class="small muted">Zaplanowane lekcje w miesiącu</span><b>${rows.reduce((s, r) => s + r.inM.length, 0)}</b><span class="small muted">bez odwołanych</span></div></div>
+  ${panel("Ile komu policzyć", rows.length ? `<div class="tablewrap"><table><thead><tr><th>Uczeń</th><th>Lekcje</th><th>Za miesiąc</th><th>Saldo</th><th>Do zapłaty</th><th></th></tr></thead><tbody>${rows.map(r => `<tr><td><button class="link" type="button" data-act="stOpen" data-id="${r.id}">${esc(r.s.name)}</button></td><td style="white-space:normal">${r.bySubj.map(g => `<div>${r.bySubj.length > 1 ? esc(SUBJ[g.subject]) + ": " : ""}${g.ls.length} <span class="small muted">(${g.ls.map(l => parseD(l.date).getDate()).join(", ")})</span></div>`).join("") || "0"}</td><td>${zl(r.monthSum)}</td><td>${adjCell(r.adj)}</td><td><b>${r.pay > 0 ? zl(r.pay) : "0 zł"}</b></td><td><div class="acts" style="flex-wrap:nowrap"><button class="btn sm" data-act="copyMsg" data-id="${r.id}">Wiadomość</button>${r.pay > 0 ? `<button class="btn sm ghost" data-act="newPayment" data-sid="${r.id}" data-amt="${r.pay}" data-note="za ${esc(monthLabel(ym))}">+ Wpłata</button>` : ""}</div></td></tr>`).join("")}</tbody></table></div>` : emptyP(`Brak zaplanowanych lekcji na ${esc(monthLabel(ym))}.`), "Za miesiąc to wszystkie zaplanowane lekcje w tym miesiącu po ich cenie. Saldo dolicza zaległości i odejmuje nadpłaty. Odwołana albo przełożona lekcja sama zmniejszy kwotę.")}`;
+}
+function msgModal(text, title) {
+  openModal({ title, body: `<textarea rows="14" readonly style="font-size:14px">${esc(text)}</textarea>`, foot: `<button type="button" class="btn primary" data-copy>Kopiuj</button>`, onMount: f => f.querySelector("[data-copy]").addEventListener("click", () => { (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(() => toast("Skopiowano – wklej w Messengerze albo SMS-ie"), () => { f.querySelector("textarea").select(); toast("Zaznaczone – skopiuj Ctrl+C"); }); }) });
+}
+
+/* ---------- Ustawienia: kontakt i przelew ---------- */
+function contactPanelHtml() {
+  const st = settings(); const b = st.bank || {}, c = st.contact || {};
+  return `<form class="panel" id="contactForm" style="display:grid;gap:12px"><h2>Kontakt i dane do przelewu</h2><p class="small muted">Uczniowie widzą je w swojej aplikacji, a wiadomości z rozliczeniem biorą z nich numer konta.</p>
+  <div class="frow"><label class="f">Imię i nazwisko<input name="cname" value="${esc(c.name || "")}"></label><label class="f">Telefon<input name="cphone" value="${esc(c.phone || "")}"></label><label class="f">E-mail<input name="cemail" value="${esc(c.email || "")}"></label></div>
+  <div class="frow"><label class="f">Odbiorca przelewu<input name="recipient" value="${esc(b.recipient || "")}"></label><label class="f">Bank<input name="bank" value="${esc(b.bank || "")}"></label></div>
+  <label class="f">Numer konta<input name="account" value="${esc(b.account || "")}"></label>
+  <label class="f">Tytuł przelewu<input name="titleTpl" value="${esc(st.titleTpl || "Korepetycje – {imie} – {miesiac}")}"><span class="small muted">{imie} i {miesiac} wstawią się same.</span></label>
+  <div><button class="btn primary" type="submit">Zapisz</button></div></form>`;
+}
+async function saveContact(f) {
+  const g = k => String(f.get(k) || "").trim();
+  const d = { contact: { name: g("cname"), phone: g("cphone"), email: g("cemail") }, bank: { recipient: g("recipient"), bank: g("bank"), account: g("account") }, titleTpl: g("titleTpl") };
+  await B.update("settings", "app", d); S.data.settings = { ...settings(), ...d }; toast("Zapisano");
+}
+
+/* ---------- obsługa akcji ---------- */
+async function korepAct(act, el) {
+  if (act === "newLesson") { lessonForm(null, { date: el.dataset.date, sid: el.dataset.sid }); return true; }
+  if (act === "editLesson" || act === "moveLesson" || act === "setStatus") { await handleLessonAct(el); return true; }
+  if (act === "newPayment") { paymentForm(el.dataset.sid || "", el.dataset.amt != null ? Number(el.dataset.amt) : undefined, el.dataset.note); return true; }
+  if (act === "newCharge") { chargeForm(el.dataset.sid || ""); return true; }
+  if (act === "newStudent") { studentForm(null); return true; }
+  if (act === "toggleArch") { S.showArch = !S.showArch; render(); return true; }
+  if (act === "calMove") { const d = Number(el.dataset.d); S.calAnchor = S.calMode === "week" ? addDays(S.calAnchor, 7 * d) : (() => { const a = parseD(S.calAnchor); return iso(new Date(a.getFullYear(), a.getMonth() + d, 1)); })(); render(); return true; }
+  if (act === "calToday") { S.calAnchor = today(); render(); return true; }
+  if (act === "calMode") { S.calMode = el.dataset.m; render(); return true; }
+  if (act === "gotoWeek") { S.calAnchor = el.dataset.date; S.calMode = "week"; render(); return true; }
+  if (act === "upTo") { S.upTo = el.dataset.v; render(); return true; }
+  if (act === "upMove") { const [y, m] = S.upMonth.split("-").map(Number); const d = new Date(y, m - 1 + Number(el.dataset.d), 1); S.upMonth = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; render(); return true; }
+  if (act === "copyMsg") { const r = upfront(S.upMonth).find(x => x.id === el.dataset.id); if (r) msgModal(upMsg(r, S.upMonth), `Wiadomość: ${r.s.name}`); return true; }
+  return false;
+}
+
 /* ---------------- render ---------------- */
 function render() {
   if (!S.user) return renderLogin();
@@ -639,9 +1029,9 @@ function render() {
   if (S.view && S.view.type === "test") return renderTest();
   if (S.view && S.view.type === "mat") return renderMat();
   const t = S.tab;
-  const html = t === "zadania" ? renderZadania() : t === "testy" ? renderTesty() : t === "uczniowie" ? renderUczniowie() : t === "ustawienia" ? renderUstawienia() : t === "matematyka" ? renderMatematyka() : t === "materialy" ? renderMaterialy() : t === "platnosci" ? renderPlatnosci() : renderMaturzysci();
+  const html = t === "dzis" ? renderDzis() : t === "kalendarz" ? renderKalendarz() : t === "zgory" ? renderZgory() : t === "zadania" ? renderZadania() : t === "testy" ? renderTesty() : t === "uczniowie" ? renderUczniowie() : t === "ustawienia" ? renderUstawienia() : t === "matematyka" ? renderMatematyka() : t === "materialy" ? renderMaterialy() : t === "platnosci" ? renderPlatnosci() : renderMaturzysci();
   root.innerHTML = frame(html);
-  applyFilter("testy"); applyFilter("mat"); wireKind(root);
+  applyFilter("testy"); applyFilter("mat"); applyFilter("ucz"); wireKind(root);
 }
 
 /* ---------------- akcje ---------------- */
@@ -653,6 +1043,7 @@ root.addEventListener("click", async e => {
   const el = e.target.closest("[data-act]"); if (!el) return;
   const act = el.dataset.act;
   try {
+    if (S.user && S.user.role === "admin" && await korepAct(act, el)) return;
     if (act === "tab") { S.tab = el.dataset.k; S.view = null; render(); window.scrollTo(0, 0); }
     else if (act === "logout") { S.view = null; await B.logout(); }
     else if (act === "hideInstall") { try { localStorage.setItem("pe_install_hidden", "1"); } catch (x) { } render(); }
@@ -735,6 +1126,7 @@ root.addEventListener("change", async e => {
     } catch (err) { toast(errMsg(err)); }
     return;
   }
+  if (e.target.id === "upmonth") { S.upMonth = e.target.value; render(); return; }
   if (e.target.id !== "importFile" || !e.target.files[0]) return;
   const st = root.querySelector("#importStatus");
   try {
@@ -760,6 +1152,7 @@ root.addEventListener("submit", async e => {
   e.preventDefault(); const f = new FormData(e.target); const id = e.target.id;
   try {
     if (id === "loginForm") { try { await B.login(f.get("email").trim(), f.get("pw")); } catch (err) { renderLogin(errMsg(err)); } }
+    else if (id === "contactForm") { await saveContact(f); render(); }
     else if (id === "assignForm") { if (await submitAssign(f)) render(); }
     else if (id === "addStudent") { const sid = rid(); const d = { name: f.get("name").trim(), subjectLabel: f.get("subj"), level: f.get("level") }; await B.set("students", sid, d); S.data.students[sid] = { id: sid, ...d }; render(); }
     else if (id === "addPay") {
@@ -828,7 +1221,7 @@ async function undoLast() {
   catch (e) { root.innerHTML = `<div class="wrap"><div class="notice bad" style="margin-top:40px">Nie udało się połączyć z Firebase. Sprawdź plik config.js. (${esc(e.message)})</div></div>`; return; }
   B.onAuth(async u => {
     S.user = u; S.view = null; S.data = null; UNDO.stack = []; UNDO.cur = null; undoBtn();
-    if (u) { root.innerHTML = frame('<p class="empty">Ładowanie…</p>'); try { u.role === "admin" ? await loadAdmin() : await loadStudent(); } catch (e) { root.innerHTML = frame(`<div class="notice bad">${esc(errMsg(e))}</div>`); return; } }
+    if (u) { root.innerHTML = frame('<p class="empty">Ładowanie…</p>'); try { if (u.role === "admin") { await loadAdmin(); await autoComplete(); } else await loadStudent(); } catch (e) { root.innerHTML = frame(`<div class="notice bad">${esc(errMsg(e))}</div>`); return; } }
     render();
   });
   if ("serviceWorker" in navigator && location.protocol === "https:" && !DEMO) navigator.serviceWorker.register("sw.js").catch(() => { });
