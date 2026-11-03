@@ -124,6 +124,8 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--surface)}
 .qn{font-weight:700;font-size:14px;color:var(--muted)}
 .qt{font-size:16px;white-space:pre-wrap;overflow-wrap:anywhere}
 .opts{display:grid;gap:6px}
+.opts.inline{display:flex;flex-wrap:wrap;gap:6px 10px}.opts.inline .opt{width:auto;padding:4px}
+.qimg{display:block;max-width:100%;height:auto;border-radius:6px;background:#fff}
 .opt{font:inherit;color:inherit;display:flex;gap:12px;align-items:center;text-align:left;border:1px solid transparent;background:none;padding:6px 8px;border-radius:10px;cursor:pointer;width:100%}
 .opt:hover:not(:disabled){background:var(--surface)}
 .opt:disabled{cursor:default}
@@ -204,6 +206,7 @@ legend{font-weight:700;font-size:13px;padding:0 4px}
 <div id="app"><div class="wrap"><p class="empty" style="padding-top:40px">Ładowanie…</p></div></div>
 <script src="config.js"></script>
 <script src="seed.js"></script>
+<script src="arkusze.js"></script>
 <script type="module" src="app.js"></script>
 </body>
 </html>

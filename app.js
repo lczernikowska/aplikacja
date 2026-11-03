@@ -144,7 +144,7 @@ async function loadAdmin() {
   const [students, plans, tests, assignments, results, planState, mathProgress, materials, lessons, payments, engProgress] = await Promise.all(["students", "plans", "tests", "assignments", "results", "planState", "mathProgress", "materials", "lessons", "payments", "engProgress"].map(c => B.list(c)));
   const by = a => Object.fromEntries(a.map(x => [x.id, x]));
   const settingsApp = await B.get("settings", "app").catch(() => null);
-  S.data = { settings: settingsApp || {}, students: by(students), plans: by(plans), tests: by(tests), assignments: by(assignments), results: by(results), planState: by(planState), mathProgress: by(mathProgress), materials: { ...Object.fromEntries((SEED.materials || []).map(m => [m.id, m])), ...by(materials) }, lessons: by(lessons), payments: by(payments), engProgress: by(engProgress) };
+  S.data = { settings: settingsApp || {}, students: by(students), plans: by(plans), tests: { ...Object.fromEntries((window.PE_ARKUSZE || []).map(t => [t.id, { ...t, _local: true }])), ...by(tests) }, assignments: by(assignments), results: by(results), planState: by(planState), mathProgress: by(mathProgress), materials: { ...Object.fromEntries((SEED.materials || []).map(m => [m.id, m])), ...by(materials) }, lessons: by(lessons), payments: by(payments), engProgress: by(engProgress) };
 }
 async function loadStudent() {
   const sid = S.user.studentId;
@@ -319,39 +319,63 @@ function passageHtml(p) {
   const paras = String(p.text || "").split(/\n\s*\n/).map(x => { const m = x.match(/^\[([A-H])\]\s*/); return `<p>${m ? `<span class="pl">${m[1]}</span> ` : ""}${esc(m ? x.slice(m[0].length) : x)}</p>`; }).join("");
   return `<div class="passage">${p.title ? `<h3>${esc(p.title)}</h3>` : ""}${p.intro ? `<p class="small muted">${esc(p.intro)}</p>` : ""}${paras}</div>`;
 }
+const qMax = q => q.type === "open" ? 0 : q.type === "multi" ? q.c.length : (q.pts || 1);
+const qScore = (q, a) => { if (q.type === "open" || a === undefined) return 0; if (q.type === "multi") return Math.min(q.c.length, (a || []).filter(x => q.c.includes(x)).length); return a === q.c ? (q.pts || 1) : 0; };
+const scoreTest = (t, answers) => t.questions.reduce((s, q, n) => s + qScore(q, answers[n]), 0);
+const maxTest = t => t.questions.reduce((s, q) => s + qMax(q), 0);
+const openPts = t => t.questions.reduce((s, q) => s + (q.type === "open" ? q.pts || 0 : 0), 0);
 function qHtml(q, n, answers, mode) {
   const mine = answers[n]; const review = mode !== "take";
+  const isMulti = q.type === "multi";
+  const sel = v => isMulti ? (mine || []).includes(v) : mine === v;
+  const good = v => isMulti ? q.c.includes(v) : q.c === v;
   const opt = (val, letter, label) => {
-    const pressed = mine === val; const right = q.c === val;
+    const pressed = sel(val); const right = good(val);
     let cls = "bub"; if (review && right) cls += " right"; else if (review && pressed && !right) cls += " wrong";
-    return `<button class="opt ${review && right ? "isright" : ""}" data-act="ans" data-n="${n}" data-v='${JSON.stringify(val)}' aria-pressed="${pressed}" ${review ? "disabled" : ""}><span class="${cls}">${letter}</span><span>${esc(label)}</span></button>`;
+    return `<button class="opt ${review && right ? "isright" : ""}" data-act="ans" data-n="${n}" data-v='${JSON.stringify(val)}' aria-pressed="${pressed}" ${review ? "disabled" : ""}><span class="${cls}">${letter}</span>${label ? `<span>${esc(label)}</span>` : ""}</button>`;
   };
-  const opts = q.type === "tf" ? opt(true, "P", "Prawda") + opt(false, "F", "Fałsz") : (q.o || []).map((o, k) => opt(k, "ABCDEFGH"[k], o)).join("");
+  const imgs = (q.imgs || []).map(u => `<img class="qimg" src="${esc(u)}" alt="${esc(q.label || "Zadanie")}" loading="lazy">`).join("");
+  const label = q.label || `Zadanie ${n + 1}.`;
+  if (q.type === "open") {
+    return `<div class="q"><span class="qn">${q.imgs ? "" : esc(label) + " "}<span class="chip">zadanie otwarte · ${q.pts} pkt</span></span>${imgs}${q.t ? `<div class="qt">${esc(q.t)}</div>` : ""}
+    ${review ? (q.e ? `<div class="expl"><b>Rozwiązanie</b><span>${esc(q.e)}</span></div>` : "") : `<p class="small muted">Rozwiąż w zeszycie. Rozwiązanie zobaczysz po oddaniu testu.</p>`}</div>`;
+  }
+  const L = q.L || (q.type === "tf" ? null : "ABCDEFGH".split(""));
+  const bare = !!q.imgs && !q.o;
+  const opts = q.type === "tf" ? opt(true, "P", "Prawda") + opt(false, "F", "Fałsz") : (q.o || L.slice(0, (q.L || []).length || 4)).map((o, k) => opt(k, L[k], q.o ? o : "")).join("");
   let verdict = "";
-  if (review) { const ok = mine === q.c; verdict = `<span class="verdict ${ok ? "ok" : "bad"}">${mine === undefined ? (mode === "key" ? "" : "Brak odpowiedzi") : ok ? "Dobrze" : "Źle"}</span>${q.e ? `<div class="expl"><b>Wyjaśnienie</b><span>${esc(q.e)}</span></div>` : ""}`; }
-  return `<div class="q"><span class="qn">Zadanie ${n + 1}.${q.type === "tf" ? " Prawda czy fałsz?" : ""}</span><div class="qt">${esc(q.t)}</div><div class="opts">${opts}</div>${verdict}</div>`;
+  if (review) {
+    const pts = qScore(q, mine), max = qMax(q);
+    const word = mine === undefined || (isMulti && !(mine || []).length) ? (mode === "key" ? "" : "Brak odpowiedzi") : pts === max ? "Dobrze" : pts > 0 ? "Częściowo" : "Źle";
+    verdict = `<span class="verdict ${pts === max ? "ok" : "bad"}">${word}${max > 1 && mode !== "key" ? ` · ${pts}/${max} pkt` : ""}</span>${q.e ? `<div class="expl"><b>Wyjaśnienie</b><span>${esc(q.e)}</span></div>` : ""}`;
+  }
+  const chips = `${isMulti ? ` <span class="chip">wybierz ${q.k || q.c.length}</span>` : ""}${qMax(q) > 1 ? ` <span class="chip">${qMax(q)} pkt</span>` : ""}`;
+  return `<div class="q">${q.imgs ? (chips ? `<span class="qn">${chips}</span>` : "") : `<span class="qn">${esc(label)}${q.type === "tf" ? " Prawda czy fałsz?" : ""}${chips}</span>`}${imgs}${q.t ? `<div class="qt">${esc(q.t)}</div>` : ""}<div class="opts${bare ? " inline" : ""}">${opts}</div>${verdict}</div>`;
 }
 function testBody(t, answers, mode) {
   return groupQuestions(t).map(g => `${g.p ? passageHtml(g.p) : ""}${g.qs.map(n => qHtml(t.questions[n], n, answers, mode)).join("")}`).join("");
 }
 function renderTest() {
   const v = S.view; const t = v.test;
-  const total = t.questions.length; const answered = Object.keys(v.answers).length;
+  const closedQ = t.questions.map((q, n) => [q, n]).filter(([q]) => q.type !== "open");
+  const total = closedQ.length; const answered = closedQ.filter(([q, n]) => v.answers[n] !== undefined && !(q.type === "multi" && !(v.answers[n] || []).length)).length;
   let top = "", bottom = "";
   if (v.mode === "take") {
     bottom = `<div class="submitbar"><span class="muted">Odpowiedzi: <b>${answered}/${total}</b></span><button class="btn primary" data-act="submitTest" ${S.busy ? "disabled" : ""}>Oddaj test</button></div>`;
   } else if (v.mode === "result") {
     const r = v.result;
-    top = `<div class="scorecard"><span class="score">${r.score}/${r.max}</span><div><b>${pct(r.score, r.max)}%</b><p class="small muted">Przejrzyj wyjaśnienia przy pytaniach, zwłaszcza tam, gdzie jest „Źle”.</p></div></div>`;
+    const op = openPts(t);
+    top = `<div class="scorecard"><span class="score">${r.score}/${r.max}</span><div><b>${pct(r.score, r.max)}%</b><p class="small muted">${op ? `Punkty za zadania zamknięte. Zadania otwarte (${op} pkt) sprawdź z rozwiązaniami poniżej.` : "Przejrzyj wyjaśnienia przy pytaniach, zwłaszcza tam, gdzie jest „Źle”."}</p></div></div>`;
   } else top = `<div class="notice small">Podgląd z kluczem odpowiedzi i wyjaśnieniami.</div>`;
   root.innerHTML = frame(`<div class="head"><div><button class="btn sm ghost" data-act="back" style="justify-self:start">← Wróć</button><p class="eyebrow">${esc(t.topic || "")}${t.level ? " · " + esc(t.level) : ""}</p><h1>${esc(t.title)}</h1>${v.who ? `<p class="muted">${esc(v.who)}</p>` : ""}</div></div>
   ${top}<div class="sheet">${t.instructions ? `<p class="muted">${esc(t.instructions)}</p>` : ""}${testBody(t, v.answers, v.mode)}</div>${bottom}`);
 }
 async function submitTest() {
-  const v = S.view; const t = v.test; const total = t.questions.length;
-  if (Object.keys(v.answers).length < total && !(await ask("Nie odpowiedziałeś/aś na wszystkie pytania. Oddać mimo to?", "Oddaj"))) return;
-  let score = 0; t.questions.forEach((q, n) => { if (v.answers[n] === q.c) score++; });
-  const res = { assignmentId: v.assignment.id, studentId: S.user.studentId, testId: t.id, answers: v.answers, score, max: total, submittedAt: new Date().toISOString() };
+  const v = S.view; const t = v.test;
+  const need = t.questions.filter(q => q.type !== "open").length; const got = t.questions.filter((q, n) => q.type !== "open" && v.answers[n] !== undefined && !(q.type === "multi" && !(v.answers[n] || []).length)).length;
+  if (got < need && !(await ask("Nie odpowiedziałeś/aś na wszystkie pytania. Oddać mimo to?", "Oddaj"))) return;
+  const score = scoreTest(t, v.answers);
+  const res = { assignmentId: v.assignment.id, studentId: S.user.studentId, testId: t.id, answers: v.answers, score, max: maxTest(t), submittedAt: new Date().toISOString() };
   S.busy = true; renderTest();
   try { await B.set("results", v.assignment.id, res); S.data.results[v.assignment.id] = res; S.view = { ...v, mode: "result", result: res }; }
   catch (e) { toast(errMsg(e)); }
@@ -1103,6 +1127,7 @@ function render() {
 
 /* ---------------- akcje ---------------- */
 async function addAssignment(sid, tid, due) {
+  const tt = S.data.tests[tid]; if (tt && tt._local) { const { id: _i, _local, ...d } = tt; await B.set("tests", tid, d); S.data.tests[tid] = { id: tid, ...d }; }
   const id = rid(); const a = { studentId: sid, testId: tid, due: due || "", createdAt: new Date().toISOString() };
   await B.set("assignments", id, a); S.data.assignments[id] = { id, ...a }; return id;
 }
@@ -1141,7 +1166,8 @@ root.addEventListener("click", async e => {
       S.view = r ? { type: "test", mode: "result", test: t, assignment: a, answers: r.answers || {}, result: r } : { type: "test", mode: "take", test: t, assignment: a, answers: {} };
       render(); window.scrollTo(0, 0);
     }
-    else if (act === "ans") { if (S.view.mode !== "take") return; S.view.answers[el.dataset.n] = JSON.parse(el.dataset.v); const y = window.scrollY; renderTest(); window.scrollTo(0, y); }
+    else if (act === "ans") { if (S.view.mode !== "take") return; const n = el.dataset.n, val = JSON.parse(el.dataset.v), q = S.view.test.questions[n];
+      if (q.type === "multi") { let a = (S.view.answers[n] || []).slice(); a = a.includes(val) ? a.filter(x => x !== val) : [...a, val]; if (a.length > (q.k || q.c.length)) a.shift(); S.view.answers[n] = a.sort(); } else S.view.answers[n] = val; const y = window.scrollY; renderTest(); window.scrollTo(0, y); }
     else if (act === "submitTest") await submitTest();
     else if (act === "back") { S.view = null; render(); }
     else if (act === "previewTest") { const t = S.data.tests[el.dataset.id]; S.view = { type: "test", mode: "key", test: { id: el.dataset.id, ...t }, answers: Object.fromEntries(t.questions.map((q, n) => [n, q.c])) }; render(); window.scrollTo(0, 0); }
