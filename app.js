@@ -140,11 +140,30 @@ function balanceBlock(b) {
   return `<div class="stat"><span class="small muted">${b.bal > 0 ? "Do zapłaty" : b.bal < 0 ? "Nadpłata" : "Stan"}</span><b style="color:var(--${cls})">${b.bal > 0 ? zl(b.bal) : b.bal < 0 ? zl(-b.bal) : "Wszystko opłacone"}</b><span class="small muted">${b.bal > 0 ? "za odbyte lekcje" : b.bal < 0 ? "nadpłata – na kolejne lekcje" : "dziękuję!"}</span></div>`;
 }
 
+const ADMIN_ONLY = ["adminTitle", "adminTopic", "adminSource"];
+const pubTest = t => { const o = {}; for (const [k, v] of Object.entries(t)) if (!ADMIN_ONLY.includes(k) && k !== "id" && !k.startsWith("_")) o[k] = v; return o; };
+async function syncLocalTests(results) {
+  const taken = new Set(results.map(r => r.testId));
+  for (const lt of (window.PE_ARKUSZE || [])) {
+    const pub = pubTest(lt); const fs = S.data.tests[lt.id];
+    if (fs) {
+      const { id: _i, ...cur } = fs;
+      try {
+        UNDO.off = true;
+        if (!taken.has(lt.id) && JSON.stringify(cur) !== JSON.stringify(pub)) await B.set("tests", lt.id, pub);
+        else if (cur.title !== pub.title || cur.topic !== pub.topic || cur.instructions !== pub.instructions) await B.update("tests", lt.id, { title: pub.title, topic: pub.topic, instructions: pub.instructions });
+      } catch (e) { console.warn("sync test", e); } finally { UNDO.off = false; }
+    }
+    S.data.tests[lt.id] = { ...(fs && taken.has(lt.id) ? fs : pub), id: lt.id, _pub: pub, _local: !fs, title: lt.adminTitle || lt.title, topic: lt.adminTopic || lt.topic };
+  }
+}
 async function loadAdmin() {
   const [students, plans, tests, assignments, results, planState, mathProgress, materials, lessons, payments, engProgress] = await Promise.all(["students", "plans", "tests", "assignments", "results", "planState", "mathProgress", "materials", "lessons", "payments", "engProgress"].map(c => B.list(c)));
   const by = a => Object.fromEntries(a.map(x => [x.id, x]));
   const settingsApp = await B.get("settings", "app").catch(() => null);
-  S.data = { settings: settingsApp || {}, students: by(students), plans: by(plans), tests: { ...Object.fromEntries((window.PE_ARKUSZE || []).map(t => [t.id, { ...t, _local: true }])), ...by(tests) }, assignments: by(assignments), results: by(results), planState: by(planState), mathProgress: by(mathProgress), materials: { ...Object.fromEntries((SEED.materials || []).map(m => [m.id, m])), ...by(materials) }, lessons: by(lessons), payments: by(payments), engProgress: by(engProgress) };
+  const results0 = results;
+  S.data = { settings: settingsApp || {}, students: by(students), plans: by(plans), tests: by(tests), assignments: by(assignments), results: by(results), planState: by(planState), mathProgress: by(mathProgress), materials: { ...Object.fromEntries((SEED.materials || []).map(m => [m.id, m])), ...by(materials) }, lessons: by(lessons), payments: by(payments), engProgress: by(engProgress) };
+  await syncLocalTests(results0);
 }
 async function loadStudent() {
   const sid = S.user.studentId;
@@ -1162,7 +1181,7 @@ function render() {
 
 /* ---------------- akcje ---------------- */
 async function addAssignment(sid, tid, due) {
-  const tt = S.data.tests[tid]; if (tt && tt._local) { const { id: _i, _local, ...d } = tt; await B.set("tests", tid, d); S.data.tests[tid] = { id: tid, ...d }; }
+  const tt = S.data.tests[tid]; if (tt && tt._local) { await B.set("tests", tid, tt._pub || pubTest(tt)); tt._local = false; }
   const id = rid(); const a = { studentId: sid, testId: tid, due: due || "", createdAt: new Date().toISOString() };
   await B.set("assignments", id, a); S.data.assignments[id] = { id, ...a }; return id;
 }
