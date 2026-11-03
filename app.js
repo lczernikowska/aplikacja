@@ -150,7 +150,9 @@ async function syncLocalTests(results) {
       const { id: _i, ...cur } = fs;
       try {
         UNDO.off = true;
+        const sameShape = (x, y) => Array.isArray(x) && Array.isArray(y) && x.length === y.length && x.every((q, i) => q.type === y[i].type && JSON.stringify(q.c) === JSON.stringify(y[i].c));
         if (!taken.has(lt.id) && JSON.stringify(cur) !== JSON.stringify(pub)) await B.set("tests", lt.id, pub);
+        else if (taken.has(lt.id) && JSON.stringify(cur.questions) !== JSON.stringify(pub.questions) && sameShape(cur.questions, pub.questions)) { await B.update("tests", lt.id, { questions: pub.questions, title: pub.title, topic: pub.topic, instructions: pub.instructions }); fs.questions = pub.questions; }
         else if (cur.title !== pub.title || cur.topic !== pub.topic || cur.instructions !== pub.instructions) await B.update("tests", lt.id, { title: pub.title, topic: pub.topic, instructions: pub.instructions });
       } catch (e) { console.warn("sync test", e); } finally { UNDO.off = false; }
     }
