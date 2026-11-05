@@ -915,7 +915,7 @@ function renderKalendarz() {
   if (S.calMode === "week") {
     const m = mondayOf(a); const days = [...Array(7)].map((_, i) => addDays(m, i));
     label = `${fmtDate(days[0])} – ${fmtDate(days[6])} ${parseD(days[6]).getFullYear()}`;
-    body = `<div class="week">${days.map((d, i) => { const ls = L.filter(l => l.date === d).sort(byDT); return `<section class="day ${d === t ? "today" : ""}"><h3><span>${DOWS[i]} ${parseD(d).getDate()}</span><button class="add" data-act="newLesson" data-date="${d}" aria-label="Dodaj lekcję: ${esc(fmtDate(d))}">+</button></h3>${ls.map(lz).join("")}</section>`; }).join("")}</div>`;
+    body = `<div class="week">${days.map((d, i) => { const ls = L.filter(l => l.date === d).sort(byDT); return `<section class="day ${d === t ? "today" : ""}"><h3><span>${DOWS[i]} ${parseD(d).getDate()}</span><button class="add" data-act="newLesson" data-date="${d}" aria-label="Dodaj lekcję: ${esc(fmtDate(d))}">+</button></h3>${ls.map(lz).join("")}${ls.some(l => l.status === "planned") && d >= t ? `<button class="dayx" data-act="cancelDay" data-date="${d}" title="Odwołaj wszystkie zaplanowane lekcje tego dnia (np. święto)">odwołaj dzień</button>` : ""}</section>`; }).join("")}</div>`;
   } else {
     const ad = parseD(a); const first = iso(new Date(ad.getFullYear(), ad.getMonth(), 1)); const start = mondayOf(first);
     label = monthLabel(first.slice(0, 7));
@@ -1224,6 +1224,14 @@ async function korepAct(act, el) {
   if (act === "newStudent") { studentForm(null); return true; }
   if (act === "toggleArch") { S.showArch = !S.showArch; render(); return true; }
   if (act === "calMove") { const d = Number(el.dataset.d); S.calAnchor = S.calMode === "week" ? addDays(S.calAnchor, 7 * d) : (() => { const a = parseD(S.calAnchor); return iso(new Date(a.getFullYear(), a.getMonth() + d, 1)); })(); render(); return true; }
+  if (act === "cancelDay") {
+    const d = el.dataset.date; const ls = lessonsArr().filter(l => l.date === d && l.status === "planned");
+    if (!ls.length) return true;
+    if (!(await ask(`Odwołać wszystkie zaplanowane lekcje w dniu ${longDate(d)}? (${ls.length}: ${ls.map(l => sName(l.studentId)).join(", ")}). Nie będą się liczyć do płatności. Cofniesz to przyciskiem „Cofnij”.`, "Odwołaj wszystkie"))) return true;
+    const now = new Date().toISOString();
+    for (const l of ls) await patchDoc("lessons", l.id, { status: "cancelled", autoDone: false, updatedAt: now, note: (l.note ? l.note + "\n" : "") + "Odwołana – dzień wolny" });
+    toast(`Odwołano ${ls.length} ${plural(ls.length, "lekcję", "lekcje", "lekcji")}`); render(); return true;
+  }
   if (act === "calToday") { S.calAnchor = today(); render(); return true; }
   if (act === "calMode") { S.calMode = el.dataset.m; render(); return true; }
   if (act === "gotoWeek") { S.calAnchor = el.dataset.date; S.calMode = "week"; render(); return true; }
@@ -1412,8 +1420,13 @@ root.addEventListener("change", async e => {
     for (const [cid, c] of Object.entries(data.charges || {})) data.payments["ch-" + cid] = { ...c, kind: "charge" };
     delete data.charges;
     const cols = [["students", "uczniów"], ["lessons", "lekcji"], ["payments", "wpłat"], ["settings", "ustawień"], ["plans", "planów"], ["tests", "testów"], ["materials", "materiałów"]];
+    const cut = data.exportedAt || ""; let skipped = 0;
+    if (cut && ["lessons", "payments"].some(c => Object.keys(data[c] || {}).length) && !(await ask("Ten plik pochodzi ze starej aplikacji. Lekcje i wpłaty, które zmieniłaś już tutaj, zostaną nietknięte – dograją się tylko brakujące. Kontynuować?", "Importuj"))) { st.textContent = ""; e.target.value = ""; return; }
     for (const [c, label] of cols) {
-      const entries = Object.entries(data[c] || {}); if (!entries.length) continue;
+      let entries = Object.entries(data[c] || {}); if (!entries.length) continue;
+      if (cut && ["lessons", "payments", "students"].includes(c)) entries = entries.filter(([id]) => { const x = (S.data[c] || {})[id]; const keep = !x || ((x.updatedAt || x.createdAt || "") <= cut && c !== "students"); if (x && !keep && c !== "students") skipped++; return c === "students" ? true : keep; });
+      if (cut && c === "students") entries = entries.map(([id, d]) => { const x = S.data.students[id]; if (!x) return [id, d]; const o = {}; for (const [k, v] of Object.entries(d)) if (x[k] === undefined || x[k] === "") o[k] = v; return [id, o]; }).filter(([, d]) => Object.keys(d).length);
+      if (!entries.length) continue;
       await B.bulk(c, entries, n => { st.textContent = `Importuję ${label}: ${n}/${entries.length}…`; });
     }
     if (data.remove) for (const [c, ids] of Object.entries(data.remove)) { let n = 0; for (const id of ids) if (S.data[c] && S.data[c][id]) { await B.del(c, id); st.textContent = `Usuwam nieaktualne: ${++n}…`; } }
@@ -1422,6 +1435,7 @@ root.addEventListener("change", async e => {
       let n = 0; for (const id of gone) { await B.del(c, id); st.textContent = `Usuwam nieaktualne (${c}): ${++n}/${gone.length}…`; }
     }
     await loadAdmin(); render();
+    if (skipped) toast(`Pominięto ${skipped} lekcji/wpłat zmienionych już w tej aplikacji.`);
     toast(`Zaimportowano: ${Object.keys(data.students || {}).length} uczniów, ${Object.keys(data.lessons || {}).length} lekcji, ${Object.keys(data.payments || {}).length} wpłat`);
   } catch (err) { if (st) st.textContent = ""; toast(err instanceof SyntaxError ? "Plik jest uszkodzony – pobierz go jeszcze raz." : errMsg(err)); }
 });
