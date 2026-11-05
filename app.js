@@ -266,6 +266,22 @@ async function addCustom(sid, title, desc, due) {
   const id = rid(); const a = { studentId: sid, kind: "custom", title, desc: desc || "", due: due || "", createdAt: new Date().toISOString() };
   await B.set("assignments", id, a); S.data.assignments[id] = { id, ...a }; return id;
 }
+function giveTestModal(tid) {
+  const t = S.data.tests[tid]; if (!t) return;
+  const had = sid => Object.values(S.data.assignments).filter(a => a.studentId === sid && a.testId === tid);
+  const g = [...new Set(Object.values(S.data.assignments).filter(a => a.testId === tid).map(a => sName(a.studentId)))];
+  openModal({ title: `Zadaj: ${t.title}`, submit: "Zadaj", body: `${g.length ? `<p class="small">Już dostali: <b>${esc(g.join(", "))}</b></p>` : ""}
+  <label class="f">Uczeń<select name="sid" required><option value="">Wybierz ucznia…</option>${activeStudents().map(s => `<option value="${s.id}">${had(s.id).length ? "✓ " : ""}${esc(s.name)}</option>`).join("")}</select></label>
+  <label class="f">Termin wykonania<input type="date" name="due" value="${weekAhead()}" data-due></label>
+  <div class="acts"><span class="small muted">Termin:</span><button type="button" class="btn sm ghost" data-due-set="next">do następnej lekcji</button><button type="button" class="btn sm ghost" data-due-set="week">za tydzień</button><button type="button" class="btn sm ghost" data-due-set="none">bez terminu</button><span class="small muted" data-due-info></span></div>`,
+    onMount: (f, ov) => wireDue(ov),
+    onSubmit: async fd => {
+      const sid = String(fd.get("sid") || ""); if (!sid) { toast("Wybierz ucznia."); return false; }
+      const was = had(sid)[0];
+      if (was && !(await ask(`${sName(sid)} dostał/a już ten test${was.due ? " (termin " + fmtDate(was.due) + ")" : ""}. Zadać jeszcze raz?`, "Zadaj mimo to"))) return false;
+      await addAssignment(sid, tid, String(fd.get("due") || "")); toast(`Zadane: ${sName(sid)}`); return true;
+    } });
+}
 function giveMatModal(m) {
   const g = matGivenNames(m.id);
   openModal({ title: `Daj: ${m.title}`, submit: "Zapisz", body: `${g.length ? `<p class="small">Już dostali: <b>${esc(g.join(", "))}</b></p>` : ""}
@@ -485,7 +501,7 @@ function renderTest() {
     const og = Object.values(r.openPts || {}).reduce((a, x) => a + x, 0);
     top = `<div class="scorecard"><span class="score">${r.score}/${r.max}</span><div><b>${pct(r.score, r.max)}%</b><p class="small muted">${op ? `${t.subject === "ang" ? "Sprawdzane automatycznie" : "Zadania zamknięte"}: ${cs ?? "–"}/${cm ?? "–"} pkt · ${t.subject === "ang" ? "wypowiedź pisemna" : "zadania otwarte"}: ${graded ? `${og}/${op} pkt${graded < nOpen ? ` (sprawdzone ${graded} z ${nOpen})` : ""}` : `${op} pkt – ${t.subject === "ang" ? "czeka" : "czekają"} na sprawdzenie`}` : "Przejrzyj wyjaśnienia przy pytaniach, zwłaszcza tam, gdzie jest „Źle”."}</p></div></div>`;
   } else top = `<div class="notice small">Podgląd z kluczem odpowiedzi i wyjaśnieniami.</div>`;
-  root.innerHTML = frame(`<div class="head"><div><button class="btn sm ghost" data-act="back" style="justify-self:start">← Wróć</button><p class="eyebrow">${esc(t.topic || "")}${t.level ? " · " + esc(t.level) : ""}</p><h1>${esc(t.title)}</h1>${v.who ? `<p class="muted">${esc(v.who)}</p>` : ""}</div></div>
+  root.innerHTML = frame(`<div class="head"><div><button class="btn sm ghost" data-act="back" style="justify-self:start">← Wróć</button><p class="eyebrow">${esc(t.topic || "")}${t.level ? " · " + esc(t.level) : ""}</p><h1>${esc(t.title)}</h1>${v.who ? `<p class="muted">${esc(v.who)}</p>` : ""}</div>${v.mode === "key" && S.user.role === "admin" && !S.preview ? `<div class="acts"><button class="btn primary" data-act="giveTest" data-id="${esc(t.id)}">Zadaj uczniowi</button></div>` : ""}</div>
   ${top}<div class="sheet">${t.instructions ? `<p class="muted">${esc(t.instructions)}</p>` : ""}${testBody(t, v.answers, v.mode)}</div>${bottom}`);
 }
 async function submitTest() {
@@ -744,7 +760,7 @@ function renderTesty() {
   const ts = Object.values(S.data.tests).sort((a, b) => (a.level || "").localeCompare(b.level || "") || a.title.localeCompare(b.title, "pl"));
   return `<div class="head"><div><p class="eyebrow">Czytanki i testy</p><h1>Bank testów</h1></div></div>
   ${searchBox("testy", "np. Człowiek, B2+, personality, czytanka 1")}
-  <div class="list">${ts.map(t => `<div class="row" data-s-testy="${esc(testText(t))}"><span class="grow"><b>${esc(t.title)}</b><span class="small muted">${esc(t.topic || "")} · ${t.questions.length} pytań${t.passages && t.passages.length ? " · z tekstem" : ""}</span></span><span class="chip acc">${esc(t.level || "")}</span><button class="btn sm" data-act="previewTest" data-id="${t.id}">Podgląd</button></div>`).join("") || '<p class="empty">Brak testów.</p>'}</div>
+  <div class="list">${ts.map(t => `<div class="row" data-s-testy="${esc(testText(t))}"><span class="grow"><b>${esc(t.title)}</b><span class="small muted">${esc(t.topic || "")} · ${t.questions.length} pytań${t.passages && t.passages.length ? " · z tekstem" : ""}</span></span><span class="chip acc">${esc(t.level || "")}</span><button class="btn sm" data-act="previewTest" data-id="${t.id}">Podgląd</button><button class="btn sm primary" data-act="giveTest" data-id="${t.id}">Zadaj</button></div>`).join("") || '<p class="empty">Brak testów.</p>'}</div>
   <form class="panel" id="importForm"><h2>Dodaj test z kodu</h2><p class="small muted">Wklej kod testu, który przygotuje Ci Claude (jeden test albo listę testów).</p><textarea name="json" rows="5" placeholder='{"id":"...","title":"...","questions":[...]}'></textarea><div><button class="btn primary" type="submit">Dodaj do banku</button></div></form>`;
 }
 
@@ -1286,6 +1302,7 @@ root.addEventListener("click", async e => {
     else if (act === "mathRemove") { if (!(await ask("Usunąć tę osobę z listy maturzystów z matematyki? Wpisane wyniki zostaną zapisane.", "Usuń z listy"))) return; await B.update("students", el.dataset.id, { mathMatura: false }); S.data.students[el.dataset.id].mathMatura = false; S.selM = "__all"; render(); }
     else if (act === "sel") { S.sel = el.dataset.id; S.showAll = false; render(); }
     else if (act === "toggleAll") { S.showAll = !S.showAll; render(); }
+    else if (act === "giveTest") { giveTestModal(el.dataset.id); }
     else if (act === "giveMat") { giveMatModal(S.data.materials[S.view.id]); }
     else if (act === "stOpen") { studentModal(S.data.students[el.dataset.id]); }
     else if (act === "stuPdf") { const a = S.data.assignments[el.dataset.id]; if (a) printDoc({ title: a.title, category: a.category, body: a.body, extra: a.vocab ? `<div class="pbreak md">${md(a.vocab)}</div>` : "" }); }
