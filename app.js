@@ -178,9 +178,15 @@ async function loadStudent() {
 
 /* ---------------- ramka ---------------- */
 const ADMIN_TABS = [["dzis", "Dziś"], ["kalendarz", "Kalendarz"], ["uczniowie", "Uczniowie"], ["platnosci", "Płatności"], ["zgory", "Rozliczenie z góry"], ["zadania", "Zadania domowe"], ["maturzysci", "Matura angielski"], ["matematyka", "Matura matematyka"], ["materialy", "Materiały"], ["testy", "Bank testów"], ["ustawienia", "Ustawienia"]];
+ADMIN_TABS.push(["wplaty", "Ostatnie wpłaty"]);
+const NAV_GROUPS = [["dzis", "Dziś", ["dzis"]], ["kalendarz", "Kalendarz", ["kalendarz"]], ["uczniowie", "Uczniowie", ["uczniowie"]], ["platnosci", "Płatności", ["platnosci", "zgory", "wplaty"]], ["zad", "Zadania i materiały", ["zadania", "materialy", "testy"]], ["matura", "Matura", ["maturzysci", "matematyka"]], ["ustawienia", "Ustawienia", ["ustawienia"]]];
+const SUB_LABELS = { zadania: "Zadania domowe", materialy: "Materiały", testy: "Bank testów", maturzysci: "Angielski", matematyka: "Matematyka" };
+const groupOf = t => NAV_GROUPS.find(g => g[2].includes(t)) || NAV_GROUPS[0];
+S.lastSub = {};
+function subNav() { const g = groupOf(S.tab); if (g[0] !== "zad" && g[0] !== "matura") return ""; return `<div class="subtabs" role="tablist" style="margin-bottom:4px">${g[2].map(k => `<button data-act="tab" data-k="${k}" aria-selected="${S.tab === k}">${SUB_LABELS[k]}</button>`).join("")}</div>`; }
 function frame(inner) {
   const u = S.user;
-  const tabs = u && u.role === "admin" && !S.view ? `<nav class="tabs">${ADMIN_TABS.map(([k, l]) => `<button data-act="tab" data-k="${k}" ${S.tab === k ? 'aria-current="page"' : ""}>${l}</button>`).join("")}</nav>` : "";
+  const tabs = u && u.role === "admin" && !S.view ? `<nav class="tabs">${NAV_GROUPS.map(([g, l, ks]) => `<button data-act="tab" data-k="${ks.includes(S.tab) ? S.tab : (S.lastSub[g] && g !== "platnosci" ? S.lastSub[g] : ks[0])}" ${ks.includes(S.tab) ? 'aria-current="page"' : ""}>${l}</button>`).join("")}</nav>` : "";
   const pv = S.preview ? `<div class="pvbar"><span>👁 Podgląd: tak widzi aplikację <b>${esc(S.user.name)}</b>. Nic tu nie zapisuje się na koncie ucznia.</span><button class="btn sm" data-act="endPreview">← Wróć do swojego widoku</button></div>` : "";
   return `${pv}<header class="top"><div class="wrap topin ${tabs ? "" : "solo"}"><span class="brand"><span class="dot"></span>PEWNY EGZAMIN</span>
   ${u ? `<span class="who">${esc(u.name || u.email)}${B.demo ? ' <span class="chip mus">podgląd</span>' : ""}<button class="btn sm ghost" data-act="logout">Wyloguj</button></span>` : ""}${tabs}</div></header>
@@ -737,9 +743,9 @@ function renderPlatnosci() {
     <section class="panel"><h2>Ostatnie lekcje</h2><p class="small muted">Lekcja z minionego dnia liczy się jako odbyta, chyba że ją odwołasz – tak jak w aplikacji dla korepetytorki.</p><div class="list">${past.reverse().map(lrow).join("") || '<p class="empty">Jeszcze żadnych.</p>'}</div></section>`;
   }
   const allP = Object.values(S.data.payments).filter(p => !isCharge(p)).sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 15);
-  return `<div class="head"><div><p class="eyebrow">Stan na dziś · to samo widzi uczeń</p><h1>Płatności</h1></div><div class="acts"><button class="btn primary" data-act="newPayment">+ Wpłata</button><button class="btn" data-act="newCharge">+ Zaległość</button></div></div>
+  return `<div class="head"><div><p class="eyebrow">Stan na dziś · to samo widzi uczeń</p><h1>Płatności</h1></div><div class="acts"><button class="btn primary" data-act="newPayment">+ Wpłata</button><button class="btn" data-act="newCharge">+ Zaległość</button><button class="btn" data-act="tab" data-k="wplaty">Ostatnie wpłaty</button><button class="btn mustard" data-act="tab" data-k="zgory">Rozliczenie z góry</button></div></div>
   <div class="list">${rows.map(r => `<button class="row" data-act="selP" data-id="${r.s.id}"><span class="grow"><b>${esc(r.s.name)}</b><span class="small muted">za lekcje ${zl(r.b.due)} · wpłaty ${zl(r.b.paid)}${r.nx ? " · następna: " + esc(fmtDate(r.nx.date) + ", " + (r.nx.time || "")) : ""}</span></span><span class="chip ${r.b.bal > 0 ? "bad" : "ok"}">${r.b.bal > 0 ? "do zapłaty " + zl(r.b.bal) : r.b.bal < 0 ? "nadpłata " + zl(-r.b.bal) : "opłacone"}</span></button>`).join("") || '<p class="empty">Brak danych.</p>'}</div>
-  ${allP.length ? `<section class="panel"><h2>Ostatnie wpłaty</h2><div class="list">${allP.map(p => `<div class="row"><span class="grow"><b>${esc(sName(p.studentId))} · ${zl(Number(p.amount) || 0)}</b><span class="small muted">${esc(fmtDate(p.date))}${p.method ? " · " + esc(p.method) : ""}${p.note ? " · " + esc(p.note) : ""}</span></span><button class="btn sm ghost" data-act="delPay" data-id="${p.id}">usuń</button></div>`).join("")}</div></section>` : ""}`;
+`;
 }
 
 /* ---------------- Laura: zadania ---------------- */
@@ -1186,12 +1192,18 @@ function upMsg(r, ym) {
   t += `\n\n${toKid ? "Do zobaczenia na zajęciach!" : "Dziękuję i pozdrawiam"}${sig ? "\n" + sig : ""}`;
   return t;
 }
+function renderWplaty() {
+  const P = Object.values(S.data.payments).filter(p => !isCharge(p)).sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.createdAt || "").localeCompare(a.createdAt || ""));
+  const n = S.wplN || 40; const sum = P.reduce((a, p) => a + (Number(p.amount) || 0), 0);
+  return `<p><button class="btn sm ghost" data-act="tab" data-k="platnosci">← Płatności</button></p><div class="head"><div><p class="eyebrow">${P.length} ${plural(P.length, "wpłata", "wpłaty", "wpłat")} · razem ${zl(sum)}</p><h1>Ostatnie wpłaty</h1></div><div class="acts"><button class="btn primary" data-act="newPayment">+ Wpłata</button></div></div>
+  ${P.length ? `<div class="list">${P.slice(0, n).map(p => `<div class="row"><span class="grow"><b>${esc(sName(p.studentId))} · ${zl(Number(p.amount) || 0)}</b><span class="small muted">${esc(fmtDate(p.date))}${p.method ? " · " + esc(p.method) : ""}${p.note ? " · " + esc(p.note) : ""}</span></span><button class="btn sm ghost" data-act="delPay" data-id="${p.id}">usuń</button></div>`).join("")}</div>${P.length > n ? `<p><button class="btn sm" data-act="morePay">Pokaż więcej</button></p>` : ""}` : emptyP("Brak wpłat.")}`;
+}
 function renderZgory() {
   if (!S.upMonth) { const d = new Date(); const nx = new Date(d.getFullYear(), d.getMonth() + (d.getDate() > 20 ? 1 : 0), 1); S.upMonth = `${nx.getFullYear()}-${pad(nx.getMonth() + 1)}`; }
   const ym = S.upMonth; const rows = upfront(ym); const total = rows.reduce((s, r) => s + Math.max(0, r.pay), 0);
   const months = (() => { const d0 = new Date(); const out = []; for (let i = -6; i <= 12; i++) { const d = new Date(d0.getFullYear(), d0.getMonth() + i, 1); out.push(`${d.getFullYear()}-${pad(d.getMonth() + 1)}`); } if (!out.includes(ym)) out.push(ym); return out.sort(); })();
   const adjCell = a => a > 0.004 ? `<span style="color:var(--bad)">+${zl(a)} zaległość</span>` : a < -0.004 ? `<span style="color:var(--ok)">−${zl(-a)} nadpłata</span>` : "—";
-  return `<div class="head"><div><p class="eyebrow">Rozliczenie z góry</p><h1>${esc(monthLabel(ym))}</h1></div><div class="acts"><div class="seg" role="group" aria-label="Wiadomość do"><button data-act="upTo" data-v="rodzic" aria-pressed="${S.upTo !== "uczen"}">Do rodzica</button><button data-act="upTo" data-v="uczen" aria-pressed="${S.upTo === "uczen"}">Do ucznia</button></div><button class="btn sm" data-act="upMove" data-d="-1" aria-label="Poprzedni miesiąc">‹</button><select id="upmonth" style="width:auto">${months.map(k => `<option value="${k}" ${k === ym ? "selected" : ""}>${esc(monthLabel(k))}</option>`).join("")}</select><button class="btn sm" data-act="upMove" data-d="1" aria-label="Następny miesiąc">›</button></div></div>
+  return `<p><button class="btn sm ghost" data-act="tab" data-k="platnosci">← Płatności</button></p><div class="head"><div><p class="eyebrow">Rozliczenie z góry</p><h1>${esc(monthLabel(ym))}</h1></div><div class="acts"><div class="seg" role="group" aria-label="Wiadomość do"><button data-act="upTo" data-v="rodzic" aria-pressed="${S.upTo !== "uczen"}">Do rodzica</button><button data-act="upTo" data-v="uczen" aria-pressed="${S.upTo === "uczen"}">Do ucznia</button></div><button class="btn sm" data-act="upMove" data-d="-1" aria-label="Poprzedni miesiąc">‹</button><select id="upmonth" style="width:auto">${months.map(k => `<option value="${k}" ${k === ym ? "selected" : ""}>${esc(monthLabel(k))}</option>`).join("")}</select><button class="btn sm" data-act="upMove" data-d="1" aria-label="Następny miesiąc">›</button></div></div>
   <div class="stats"><div class="stat"><span class="small muted">Razem do zebrania</span><b>${zl(total)}</b><span class="small muted">${rows.filter(r => r.pay > 0).length} ${plural(rows.filter(r => r.pay > 0).length, "uczeń", "uczniów", "uczniów")}</span></div><div class="stat"><span class="small muted">Zaplanowane lekcje w miesiącu</span><b>${rows.reduce((s, r) => s + r.inM.length, 0)}</b><span class="small muted">bez odwołanych</span></div></div>
   ${panel("Ile komu policzyć", rows.length ? `<div class="tablewrap"><table><thead><tr><th>Uczeń</th><th>Lekcje</th><th>Za miesiąc</th><th>Saldo</th><th>Do zapłaty</th><th></th></tr></thead><tbody>${rows.map(r => `<tr><td><button class="link" type="button" data-act="stOpen" data-id="${r.id}">${esc(r.s.name)}</button></td><td style="white-space:normal">${r.bySubj.map(g => `<div>${r.bySubj.length > 1 ? esc(SUBJ[g.subject]) + ": " : ""}${g.ls.length} <span class="small muted">(${g.ls.map(l => parseD(l.date).getDate()).join(", ")})</span></div>`).join("") || "0"}</td><td>${zl(r.monthSum)}</td><td>${adjCell(r.adj)}</td><td><b>${r.pay > 0 ? zl(r.pay) : "0 zł"}</b></td><td><div class="acts" style="flex-wrap:nowrap"><button class="btn sm" data-act="copyMsg" data-id="${r.id}">Wiadomość</button>${r.pay > 0 ? `<button class="btn sm ghost" data-act="newPayment" data-sid="${r.id}" data-amt="${r.pay}" data-note="za ${esc(monthLabel(ym))}">+ Wpłata</button>` : ""}</div></td></tr>`).join("")}</tbody></table></div>` : emptyP(`Brak zaplanowanych lekcji na ${esc(monthLabel(ym))}.`), "Za miesiąc to wszystkie zaplanowane lekcje w tym miesiącu po ich cenie. Saldo dolicza zaległości i odejmuje nadpłaty. Odwołana albo przełożona lekcja sama zmniejszy kwotę.")}`;
 }
@@ -1232,6 +1244,7 @@ async function korepAct(act, el) {
     for (const l of ls) await patchDoc("lessons", l.id, { status: "cancelled", autoDone: false, updatedAt: now, note: (l.note ? l.note + "\n" : "") + "Odwołana – dzień wolny" });
     toast(`Odwołano ${ls.length} ${plural(ls.length, "lekcję", "lekcje", "lekcji")}`); render(); return true;
   }
+  if (act === "morePay") { S.wplN = (S.wplN || 40) + 40; render(); return true; }
   if (act === "calToday") { S.calAnchor = today(); render(); return true; }
   if (act === "calMode") { S.calMode = el.dataset.m; render(); return true; }
   if (act === "gotoWeek") { S.calAnchor = el.dataset.date; S.calMode = "week"; render(); return true; }
@@ -1272,7 +1285,8 @@ function render() {
   if (S.view && S.view.type === "test") return renderTest();
   if (S.view && S.view.type === "mat") return renderMat();
   const t = S.tab;
-  const html = t === "dzis" ? renderDzis() : t === "kalendarz" ? renderKalendarz() : t === "zgory" ? renderZgory() : t === "zadania" ? renderZadania() : t === "testy" ? renderTesty() : t === "uczniowie" ? renderUczniowie() : t === "ustawienia" ? renderUstawienia() : t === "matematyka" ? renderMatematyka() : t === "materialy" ? renderMaterialy() : t === "platnosci" ? renderPlatnosci() : renderMaturzysci();
+  S.lastSub[groupOf(t)[0]] = t;
+  const html = subNav() + (t === "dzis" ? renderDzis() : t === "kalendarz" ? renderKalendarz() : t === "wplaty" ? renderWplaty() : t === "zgory" ? renderZgory() : t === "zadania" ? renderZadania() : t === "testy" ? renderTesty() : t === "uczniowie" ? renderUczniowie() : t === "ustawienia" ? renderUstawienia() : t === "matematyka" ? renderMatematyka() : t === "materialy" ? renderMaterialy() : t === "platnosci" ? renderPlatnosci() : renderMaturzysci());
   root.innerHTML = frame(html);
   applyFilter("testy"); applyFilter("mat"); applyFilter("ucz"); wireKind(root);
 }
