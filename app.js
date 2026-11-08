@@ -628,9 +628,10 @@ function engStats(sid) {
 }
 function renderEngTests(sid) {
   const t = (S.data.engProgress[sid] || {}).topics || {}; const st = engStats(sid);
-  const cell = (k, label) => { const x = t[k] || {}; return `<div style="display:grid;gap:4px;min-width:150px"><span class="small muted">${label}</span><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><label class="check"><input type="checkbox" data-edone="${k}" ${x.done ? "checked" : ""}> zrobione</label><input type="number" min="0" max="100" inputmode="numeric" data-epct="${k}" value="${typeof x.pct === "number" ? x.pct : ""}" placeholder="%" style="width:76px" aria-label="${label} w procentach">${pctChip(x.pct)}</div>${k.startsWith("v") ? redoCell("eng", k, ENG_AREAS[Number(k.slice(1)) - 1], x, true) : ""}</div>`; };
+  const lastMax = kind => { const xs = Object.entries(t).filter(([kk, x]) => kk[0] === kind && x && typeof x.max === "number").sort((a, b) => String(b[1].date || "").localeCompare(String(a[1].date || ""))); return xs.length ? xs[0][1].max : null; };
+  const cell = (k, label) => { const x = t[k] || {}; return `<div style="display:grid;gap:4px;min-width:150px"><span class="small muted">${label}</span><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><label class="check"><input type="checkbox" data-edone="${k}" ${x.done ? "checked" : ""}> zrobione</label><input type="number" min="0" step="0.5" inputmode="decimal" data-epts="${k}" value="${typeof x.pts === "number" ? x.pts : ""}" placeholder="pkt" style="width:64px" aria-label="${label}: punkty"><span class="muted">na</span><input type="number" min="1" step="0.5" inputmode="decimal" data-emax="${k}" value="${typeof x.max === "number" ? x.max : (lastMax(k[0]) ?? "")}" placeholder="max" style="width:64px" aria-label="${label}: maksymalna liczba punktów">${pctChip(x.pct)}</div>${k.startsWith("v") ? redoCell("eng", k, ENG_AREAS[Number(k.slice(1)) - 1], x, true) : ""}</div>`; };
   return `<section class="panel"><div class="stats"><div class="stat"><span class="small muted">Testy ze słownictwa</span><b>${st.v.done}/14${st.v.avg === null ? "" : " · " + st.v.avg + "%"}</b></div><div class="stat"><span class="small muted">Wypracowania</span><b>${st.w.done}/14${st.w.avg === null ? "" : " · " + st.w.avg + "%"}</b></div></div>
-  <p class="small muted">Wpisz wynik w procentach – zapisuje się sam i oznacza zadanie jako zrobione. Wypracowanie możesz też tylko odhaczyć.</p></section>
+  <p class="small muted">Wpisz punkty i na ile punktów był test – procent policzy się sam, a zadanie oznaczy jako zrobione. Maksimum podpowiada się z ostatnio wpisanego. Wypracowanie możesz też tylko odhaczyć.</p></section>
   <div class="list">${ENG_AREAS.map((n, i) => `<div class="row"><span class="num">${i + 1}</span><span class="grow"><b>${esc(n)}</b></span>${cell("v" + pad(i + 1), "Test")}${cell("w" + pad(i + 1), "Wypracowanie")}</div>`).join("")}</div>`;
 }
 async function saveEng(sid, k, patch) {
@@ -1455,12 +1456,16 @@ root.addEventListener("change", async e => {
     try { if (subj === "mat") await saveMath(S.selM, k, { wrong: v }); else await saveEng(S.sel, k, { wrong: v }); toast(v ? "Zapisano błędne zadania" : "Wyczyszczono"); const y = window.scrollY; render(); window.scrollTo(0, y); } catch (err) { toast(errMsg(err)); }
     return;
   }
-  if (e.target.dataset.edone || e.target.dataset.epct !== undefined) {
+  if (e.target.dataset.edone || e.target.dataset.epts !== undefined || e.target.dataset.emax !== undefined) {
     try {
       if (e.target.dataset.edone) await saveEng(S.sel, e.target.dataset.edone, { done: e.target.checked });
-      else { const v = e.target.value.trim(); const k = e.target.dataset.epct;
-        if (v === "") await saveEng(S.sel, k, { pct: null }); else await saveEng(S.sel, k, { pct: Math.max(0, Math.min(100, Math.round(+v))), done: true });
-        toast("Zapisano"); }
+      else { const k = e.target.dataset.epts || e.target.dataset.emax; const row = e.target.closest(".row");
+        const ptsV = row.querySelector(`[data-epts="${k}"]`).value.trim(), maxV = row.querySelector(`[data-emax="${k}"]`).value.trim();
+        const pts = ptsV === "" ? null : Math.max(0, +ptsV), max = maxV === "" ? null : Math.max(0, +maxV);
+        if (pts === null) { if (e.target.dataset.epts !== undefined) { await saveEng(S.sel, k, { pts: null, pct: null }); toast("Wyczyszczono"); } else return; }
+        else if (!max) { toast("Wpisz też, na ile punktów był test."); return; }
+        else if (pts > max) { toast("Punktów jest więcej niż maksimum – sprawdź liczby."); return; }
+        else { const pct = Math.round(pts / max * 100); await saveEng(S.sel, k, { pts, max, pct, done: true }); toast("Zapisano: " + pct + "%"); } }
       const y = window.scrollY; render(); window.scrollTo(0, y);
     } catch (err) { toast(errMsg(err)); }
     return;
