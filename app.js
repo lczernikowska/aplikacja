@@ -237,9 +237,9 @@ function studentResults() {
   return out;
 }
 function customCard(a, r, late) {
-  const pdf = a.kind === "material" ? `<button class="btn sm primary" data-act="stuOpenMat" data-id="${a.id}">Otwórz</button><button class="btn sm" data-act="stuPdf" data-id="${a.id}">PDF</button>` : "";
+  const pdf = a.kind === "material" ? `<button class="btn sm" data-act="stuOpenMat" data-id="${a.id}">Otwórz</button><button class="btn sm" data-act="stuPdf" data-id="${a.id}">PDF</button>` : "";
   return `<div class="row" style="align-items:flex-start"><span class="grow"><b>${esc(a.title || "Zadanie")}</b>${a.desc ? `<span class="small" style="white-space:pre-wrap;display:block;margin-top:4px">${esc(a.desc)}</span>` : ""}<span class="small muted">${a.due ? "termin: " + fmtDate(a.due) : ""}</span></span>
-  ${pdf}${r ? '<span class="chip ok">zrobione</span>' : `${late ? '<span class="chip bad">po terminie</span>' : ""}<button class="btn sm primary" data-act="doneCustom" data-id="${a.id}">Zrobione ✓</button>`}</div>`;
+  ${pdf}${r ? '<span class="chip ok">zrobione</span>' : `${late ? '<span class="chip bad">po terminie</span>' : '<span class="chip mus">do zrobienia</span>'}<button class="btn sm ghost" data-act="doneCustom" data-id="${a.id}" style="white-space:nowrap">☐ Oznacz jako zrobione</button>`}</div>`;
 }
 const ownKind = a => a.kind === "custom" || a.kind === "material";
 const kindLabel = a => a.kind === "custom" ? "zadanie własne" : a.kind === "material" ? (a.atLesson ? "materiał · dany na lekcji" : "materiał (PDF)") : "test";
