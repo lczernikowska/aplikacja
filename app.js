@@ -237,7 +237,7 @@ function studentResults() {
   return out;
 }
 function customCard(a, r, late) {
-  const pdf = a.kind === "material" ? `<button class="btn sm" data-act="stuPdf" data-id="${a.id}">Pobierz PDF</button>` : "";
+  const pdf = a.kind === "material" ? `<button class="btn sm primary" data-act="stuOpenMat" data-id="${a.id}">Otwórz</button><button class="btn sm" data-act="stuPdf" data-id="${a.id}">PDF</button>` : "";
   return `<div class="row" style="align-items:flex-start"><span class="grow"><b>${esc(a.title || "Zadanie")}</b>${a.desc ? `<span class="small" style="white-space:pre-wrap;display:block;margin-top:4px">${esc(a.desc)}</span>` : ""}<span class="small muted">${a.due ? "termin: " + fmtDate(a.due) : ""}</span></span>
   ${pdf}${r ? '<span class="chip ok">zrobione</span>' : `${late ? '<span class="chip bad">po terminie</span>' : ""}<button class="btn sm primary" data-act="doneCustom" data-id="${a.id}">Zrobione ✓</button>`}</div>`;
 }
@@ -253,6 +253,14 @@ function printDoc({ title, category, body, extra }) {
   <div class="namebox"><span>Imię i nazwisko:</span><span>Data:</span></div><h1>${esc(title)}</h1><div class="md">${md(body || "")}</div>${extra || ""}`;
   const old = document.title; document.title = title.replace(/[:·]/g, " -").replace(/\s+/g, " ");
   setTimeout(() => { window.print(); document.title = old; }, 50);
+}
+function showMaterial(a) {
+  const ov = document.createElement("div"); ov.className = "ov";
+  ov.innerHTML = `<div class="modal" role="dialog" aria-modal="true" style="max-width:820px;width:100%"><header><h2>${esc(a.title || "Materiał")}</h2><button class="x" data-x>×</button></header>
+  <div class="mb"><div class="md">${md(a.body || "")}</div>${a.vocab ? `<hr><div class="md">${md(a.vocab)}</div>` : ""}</div>
+  <footer><button class="btn" data-pdf>Pobierz PDF</button><button class="btn primary" data-x>Zamknij</button></footer></div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener("click", e => { if (e.target === ov || e.target.closest("[data-x]")) ov.remove(); else if (e.target.closest("[data-pdf]")) { ov.remove(); printDoc({ title: a.title, category: a.category, body: a.body, extra: a.vocab ? `<div class="pbreak md">${md(a.vocab)}</div>` : "" }); } });
 }
 function assignFormHtml(sid) {
   const st = Object.values(S.data.students).sort((a, b) => a.name.localeCompare(b.name, "pl"));
@@ -962,12 +970,12 @@ async function autoComplete() {
 /* odświeżanie danych w tle – żeby było widać, co uczniowie oddali/odhaczyli na swoich telefonach */
 let refreshBusy = false, lastRefresh = Date.now();
 async function silentRefresh(force) {
-  if (refreshBusy || !S.user || S.user.role !== "admin" || S.preview || S.busy) return;
+  if (refreshBusy || !S.user || S.preview || S.busy || (S.view && S.view.type === "test")) return;
   if (!force && Date.now() - lastRefresh < 20000) return;
   const ae = document.activeElement;
   if (document.querySelector(".ov") || (ae && /INPUT|TEXTAREA|SELECT/.test(ae.tagName))) return;
   refreshBusy = true;
-  try { await loadAdmin(); lastRefresh = Date.now(); if (!document.querySelector(".ov") && !(document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))) { const y = window.scrollY; render(); window.scrollTo(0, y); } }
+  try { if (S.user.role === "admin") await loadAdmin(); else await loadStudent(); lastRefresh = Date.now(); if (!document.querySelector(".ov") && !(document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))) { const y = window.scrollY; render(); window.scrollTo(0, y); } }
   catch (e) { console.warn("refresh", e); } finally { refreshBusy = false; }
 }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") silentRefresh(); });
@@ -1423,6 +1431,7 @@ root.addEventListener("click", async e => {
     else if (act === "giveTest") { giveTestModal(el.dataset.id); }
     else if (act === "giveMat") { giveMatModal(S.data.materials[S.view.id]); }
     else if (act === "stOpen") { studentModal(S.data.students[el.dataset.id]); }
+    else if (act === "stuOpenMat") { const a = S.data.assignments[el.dataset.id]; if (a) showMaterial(a); }
     else if (act === "stuPdf") { const a = S.data.assignments[el.dataset.id]; if (a) printDoc({ title: a.title, category: a.category, body: a.body, extra: a.vocab ? `<div class="pbreak md">${md(a.vocab)}</div>` : "" }); }
     else if (act === "undoneCustom") { if (!(await ask("Oznaczyć to zadanie jako NIE zrobione? Wróci do listy „Do zrobienia” u ucznia.", "Tak, cofnij"))) return; await B.del("results", el.dataset.id); delete S.data.results[el.dataset.id]; toast("Cofnięto – zadanie znów do zrobienia"); render(); }
     else if (act === "doneCustom") { if (S.user.role !== "admin" && !(await ask("Na pewno masz to zadanie zrobione?", "Tak, zrobione"))) return; await markCustomDone(el.dataset.id); toast(S.user.role === "admin" ? "Odhaczone" : "Super, zapisane!"); render(); }
