@@ -578,6 +578,7 @@ function assignmentFor(sid, testId) { return Object.values(S.data.assignments).f
 function renderMaturzysci() {
   const list = planStudents();
   if (!list.length) return `<div class="notice">Nie ma jeszcze planów. Wejdź w <b>Ustawienia</b> i kliknij „Wczytaj plany, czytanki i materiały”.</div>`;
+  if (S.sel === "__all") return renderEngOverview(list);
   if (!S.sel || !S.data.plans[S.sel]) S.sel = list[0].id;
   const s = S.data.students[S.sel], plan = S.data.plans[S.sel], st = S.data.planState[S.sel] || {};
   const doneN = plan.lessons.filter(l => (st.done || {})[l.n]).length;
@@ -611,7 +612,7 @@ function renderMaturzysci() {
     <button class="btn sm ghost" data-act="shift" data-i="${i}" title="Ta i kolejne lekcje przesuwają się o jeden termin">Przesuń od tej lekcji o termin</button></div></div></details>`;
   };
   return `<div class="head"><div><p class="eyebrow">Angielski · matura rozszerzona</p><h1>Maturzyści</h1></div></div>
-  <div class="pills">${list.map(x => `<button data-act="sel" data-id="${x.id}" aria-pressed="${x.id === S.sel}">${esc(x.name)}</button>`).join("")}</div>
+  ${engPills(list)}
   <section class="panel"><div class="head"><div><h2>${esc(s.name)} <span class="chip mus">cel: ${esc(s.goal || "")}</span></h2><p class="muted small">${esc(plan.schedule || "")}</p></div></div>
   ${plan.profile ? `<p>${esc(plan.profile)}</p>` : ""}
   <div class="stats"><div class="stat"><span class="small muted">Lekcje zrobione</span><b>${doneN}/${plan.lessons.length}</b></div><div class="stat"><span class="small muted">Średnia z testów w aplikacji</span><b>${avg === null ? "–" : avg + "%"}</b></div><div class="stat"><span class="small muted">Materiał do</span><b>${esc(plan.materialEnd || "31 mar")}</b></div></div>
@@ -619,6 +620,19 @@ function renderMaturzysci() {
   <div class="pills"><button data-act="engView" data-k="plan" aria-pressed="${S.engView !== "testy"}">Plan lekcji</button><button data-act="engView" data-k="testy" aria-pressed="${S.engView === "testy"}">Testy z działów 1–14</button></div>
   ${S.engView === "testy" ? renderEngTests(s.id) : `<div class="head"><div><h2>Plan lekcji</h2></div><button class="btn sm" data-act="toggleAll">${S.showAll ? "Pokaż od bieżącej" : "Pokaż wszystkie (" + plan.lessons.length + ")"}</button></div>
   <div class="list">${shown.map(lessonHtml).join("")}</div>`}`;
+}
+const engPills = list => `<div class="pills"><button data-act="sel" data-id="__all" aria-pressed="${S.sel === "__all"}">Przegląd</button>${list.map(x => `<button data-act="sel" data-id="${x.id}" aria-pressed="${x.id === S.sel}">${esc(x.name)}</button>`).join("")}</div>`;
+const ENG_SHORT = ["Czł.", "Dom", "Eduk.", "Praca", "Ż. pryw.", "Żyw.", "Zakupy", "Podr.", "Kult.", "Sport", "Zdrow.", "Nauka", "Przyr.", "Ż. społ."];
+function renderEngOverview(list) {
+  const cellOf = x => x && x.done ? (typeof x.pct === "number" ? pctChip(x.pct) : '<span class="chip ok">✓</span>') : '<span class="muted">–</span>';
+  const table = (kind, title) => {
+    const rows = list.map(s => { const t = (S.data.engProgress[s.id] || {}).topics || {}; const st = engStats(s.id)[kind];
+      return `<tr><td><button class="btn sm ghost" data-act="sel" data-id="${s.id}">${esc(s.name)}</button></td><td>${st.done}/14</td><td>${st.avg === null ? "–" : pctChip(st.avg)}</td>${ENG_AREAS.map((_, i) => `<td>${cellOf(t[kind + pad(i + 1)])}</td>`).join("")}</tr>`; }).join("");
+    return `<section class="panel"><h2>${title}</h2><div class="tablewrap"><table class="compact"><thead><tr><th>Uczeń</th><th>Działy</th><th>Średnia</th>${ENG_AREAS.map((n, i) => `<th title="${i + 1}. ${esc(n)}">${esc(ENG_SHORT[i])}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div></section>`;
+  };
+  return `<div class="head"><div><p class="eyebrow">Angielski · matura rozszerzona</p><h1>Maturzyści</h1></div></div>${engPills(list)}
+  <section class="panel"><p class="small muted">Kliknij imię, żeby wpisać wyniki. Po najechaniu na skrót zobaczysz pełną nazwę działu. Zielone ≥ 70%, żółte 50–69%, czerwone &lt; 50%.</p></section>
+  ${table("v", "Testy ze słownictwa")}${table("w", "Wypracowania")}`;
 }
 const ENG_AREAS = ["Człowiek", "Miejsce zamieszkania", "Edukacja", "Praca", "Życie prywatne", "Żywienie", "Zakupy i usługi", "Podróżowanie i turystyka", "Kultura", "Sport", "Zdrowie", "Nauka i technika", "Świat przyrody", "Życie społeczne"];
 function engStats(sid) {
