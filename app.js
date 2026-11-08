@@ -243,7 +243,7 @@ function customCard(a, r, late) {
 }
 const ownKind = a => a.kind === "custom" || a.kind === "material";
 const kindLabel = a => a.kind === "custom" ? "zadanie własne" : a.kind === "material" ? (a.atLesson ? "materiał · dany na lekcji" : "materiał (PDF)") : "test";
-const taskTitle = a => ownKind(a) ? (a.title || "Zadanie własne") : ((S.data.tests[a.testId] || {}).title || a.testId);
+const taskTitle = a => ownKind(a) ? (a.title || "Zadanie własne") : (a.only ? "Poprawa: " : "") + ((S.data.tests[a.testId] || {}).title || a.testId) + (a.only ? ` (${a.only.length} ${plural(a.only.length, "zadanie", "zadania", "zadań")})` : "");
 const splitKey = key => { const i = (key || "").search(/^##\s*Słówka/m); return i < 0 ? "" : key.slice(i); };
 const givenTo = (sid, matId) => Object.values(S.data.assignments || {}).filter(a => a.studentId === sid && a.kind === "material" && a.matId === matId);
 const matGivenNames = matId => [...new Set(Object.values(S.data.assignments || {}).filter(a => a.kind === "material" && a.matId === matId).map(a => sName(a.studentId)))];
@@ -384,7 +384,7 @@ function renderStudent() {
   const todo = as.filter(a => !resultFor(a.id)), done = as.filter(a => resultFor(a.id)).reverse();
   const card = a => { const t = S.data.tests[a.testId]; const r = resultFor(a.id); const late = !r && a.due && a.due < today();
     if (ownKind(a)) return customCard(a, r, late);
-    return `<button class="row" data-act="openTest" data-id="${a.id}"><span class="grow"><b>${esc(t ? t.title : "Test")}</b><span class="small muted">${t && t.topic ? esc(t.topic) + " · " : ""}${a.due ? "termin: " + fmtDate(a.due) : ""}</span></span>
+    return `<button class="row" data-act="openTest" data-id="${a.id}"><span class="grow"><b>${a.only ? "Poprawa: " : ""}${esc(t ? t.title : "Test")}${a.only ? ` <span class="chip">${a.only.length} ${plural(a.only.length, "zadanie", "zadania", "zadań")}</span>` : ""}</b><span class="small muted">${t && t.topic ? esc(t.topic) + " · " : ""}${a.due ? "termin: " + fmtDate(a.due) : ""}</span></span>
     ${r ? `<span class="chip ${pct(r.score, r.max) >= 70 ? "ok" : pct(r.score, r.max) >= 50 ? "warn" : "bad"}">${r.score}/${r.max} · ${pct(r.score, r.max)}%</span>` : late ? '<span class="chip bad">po terminie</span>' : '<span class="chip mus">do zrobienia</span>'}</button>`; };
   const nx = nextLessons(S.data.lessons || [], 3); const b = balanceOf(S.data.lessons || [], S.data.payments || []);
   const bank = S.data.settings && S.data.settings.bank; const month = new Date().toLocaleDateString("pl-PL", { month: "long", year: "numeric" });
@@ -426,6 +426,49 @@ function photoBox(n, list, editable) {
   ${editable ? `<label class="btn sm mustard phadd">📷 Dodaj zdjęcie rozwiązania<input type="file" accept="image/*" data-photo="${n}" hidden multiple></label>` : ""}</div>`;
 }
 const openMax = t => t.questions.reduce((s, q) => s + (q.type === "open" ? q.pts || 0 : 0), 0);
+/* ---------- poprawa: test złożony tylko z wybranych zadań ---------- */
+const grpKey = q => String(q.label || "").replace(/\.\d+\.?$/, "").replace(/\.$/, "");
+function subsetTest(t, only) {
+  if (!only || !only.length) return t;
+  const shown = new Set();
+  const qs = only.map(i => {
+    const q = { ...t.questions[i], _orig: i };
+    const g = grpKey(q);
+    if (!q.imgs) { for (let j = i - 1; j >= 0; j--) { const p = t.questions[j]; if (grpKey(p) !== g) break; if (p.imgs) { if (!shown.has(g)) { q.imgs = p.imgs; if (p.tr) q.tr = p.tr; } break; } } }
+    if (q.imgs) shown.add(g);
+    if (q.label && !q.label.startsWith("Zadanie") && q.imgs) {/* nagłówek grupy pokazany */ }
+    return q;
+  });
+  return { ...t, questions: qs, title: t.title, _only: only };
+}
+const testForAssign = a => { const t = S.data.tests[a.testId]; if (!t) return null; return a.only ? subsetTest({ id: a.testId, ...t }, a.only) : { id: a.testId, ...t }; };
+function wrongIdx(t, r) {
+  const out = []; t.questions.forEach((q, n) => {
+    if (q.type === "open") { const g = (r.openPts || {})[n]; if (g == null || g < (q.pts || 0)) out.push(n); }
+    else if (qScore(q, (r.answers || {})[n], (r.over || {})[n]) < qMax(q)) out.push(n);
+  });
+  return out;
+}
+function redoTestModal() {
+  const v = S.view; const a = v.assignment; const r = v.result; const t = v.test; const sid = a.studentId;
+  const wrong = new Set(wrongIdx(t, r));
+  const orig = i => (t.questions[i]._orig ?? i);
+  openModal({ title: `Zadaj ponownie błędne: ${t.title}`, submit: "Zadaj zaznaczone", wide: true, body: `
+  <p class="small muted">Zaznaczone są zadania za mniej niż pełne punkty (u otwartych także te jeszcze nieocenione). Możesz odznaczyć albo dodać inne.</p>
+  <div class="acts"><button type="button" class="btn sm ghost" data-allw="1">zaznacz wszystkie</button><button type="button" class="btn sm ghost" data-allw="0">odznacz wszystkie</button></div>
+  <div style="display:flex;flex-wrap:wrap;gap:6px 14px">${t.questions.map((q, i) => `<label class="check" style="min-width:96px"><input type="checkbox" name="w" value="${orig(i)}" ${wrong.has(i) ? "checked" : ""}> ${esc((q.label || "Zadanie " + (i + 1)).replace(/^Zadanie\s*/, "").replace(/\.$/, ""))}${wrong.has(i) ? ' <span class="chip bad" style="padding:0 6px">źle</span>' : ""}</label>`).join("")}</div>
+  <label class="f">Termin wykonania<input type="date" name="due" value="${defaultDue(sid)}" data-due></label>
+  <div class="acts"><span class="small muted">Termin:</span><button type="button" class="btn sm ghost" data-due-set="next">do następnej lekcji</button><button type="button" class="btn sm ghost" data-due-set="week">za tydzień</button><button type="button" class="btn sm ghost" data-due-set="none">bez terminu</button><span class="small muted" data-due-info>${dueInfo(sid)}</span></div>
+  <input type="hidden" name="sid" value="${sid}">`,
+    onMount: (f, ov) => { wireDue(ov); f.addEventListener("click", e => { const b = e.target.closest("[data-allw]"); if (b) f.querySelectorAll("[name=w]").forEach(c => { c.checked = b.dataset.allw === "1"; }); }); },
+    onSubmit: async fd => {
+      const only = fd.getAll("w").map(Number).sort((x, y) => x - y); if (!only.length) { toast("Zaznacz co najmniej jedno zadanie."); return false; }
+      const tt = S.data.tests[a.testId]; if (tt && tt._local) { await B.set("tests", a.testId, tt._pub || pubTest(tt)); tt._local = false; }
+      const id = rid(); const d = { studentId: sid, testId: a.testId, only, redoOf: a.id, due: String(fd.get("due") || ""), createdAt: new Date().toISOString() };
+      await B.set("assignments", id, d); S.data.assignments[id] = { id, ...d };
+      toast(`Zadane ponownie: ${only.length} ${plural(only.length, "zadanie", "zadania", "zadań")}`); return true;
+    } });
+}
 const qMax = q => q.type === "open" ? 0 : q.type === "multi" ? q.c.length : (q.pts || 1);
 const normAns = x => String(x || "").replace(/[’‘`´]/g, "'").replace(/\s+/g, " ").trim().replace(/[.!?,;]+$/, "").toLowerCase();
 const textOk = (q, a) => { const v = normAns(a); if (!v) return false; return (q.acc || []).some(x => normAns(x) === v) && !(q.caseI && /\bi\b/.test(String(a).replace(/[A-Z]/g, ""))); };
@@ -507,7 +550,7 @@ function renderTest() {
     const og = Object.values(r.openPts || {}).reduce((a, x) => a + x, 0);
     top = `<div class="scorecard"><span class="score">${r.score}/${r.max}</span><div><b>${pct(r.score, r.max)}%</b><p class="small muted">${op ? `${t.subject === "ang" ? "Sprawdzane automatycznie" : "Zadania zamknięte"}: ${cs ?? "–"}/${cm ?? "–"} pkt · ${t.subject === "ang" ? "wypowiedź pisemna" : "zadania otwarte"}: ${graded ? `${og}/${op} pkt${graded < nOpen ? ` (sprawdzone ${graded} z ${nOpen})` : ""}` : `${op} pkt – ${t.subject === "ang" ? "czeka" : "czekają"} na sprawdzenie`}` : "Przejrzyj wyjaśnienia przy pytaniach, zwłaszcza tam, gdzie jest „Źle”."}</p></div></div>`;
   } else top = `<div class="notice small">Podgląd z kluczem odpowiedzi i wyjaśnieniami.</div>`;
-  root.innerHTML = frame(`<div class="head"><div><button class="btn sm ghost" data-act="back" style="justify-self:start">← Wróć</button><p class="eyebrow">${esc(t.topic || "")}${t.level ? " · " + esc(t.level) : ""}</p><h1>${esc(t.title)}</h1>${v.who ? `<p class="muted">${esc(v.who)}</p>` : ""}</div>${v.mode === "key" && S.user.role === "admin" && !S.preview ? `<div class="acts"><button class="btn primary" data-act="giveTest" data-id="${esc(t.id)}">Zadaj uczniowi</button></div>` : ""}</div>
+  root.innerHTML = frame(`<div class="head"><div><button class="btn sm ghost" data-act="back" style="justify-self:start">← Wróć</button><p class="eyebrow">${esc(t.topic || "")}${t.level ? " · " + esc(t.level) : ""}</p><h1>${v.assignment && v.assignment.only ? "Poprawa: " : ""}${esc(t.title)}</h1>${v.assignment && v.assignment.only ? `<p class="small muted">Tylko zadania, które poprzednio wyszły źle (${v.assignment.only.length}).</p>` : ""}${v.who ? `<p class="muted">${esc(v.who)}</p>` : ""}</div>${v.mode === "key" && S.user.role === "admin" && !S.preview ? `<div class="acts"><button class="btn primary" data-act="giveTest" data-id="${esc(t.id)}">Zadaj uczniowi</button></div>` : ""}${v.mode === "result" && S.user.role === "admin" && !S.preview && v.result ? `<div class="acts"><button class="btn mustard" data-act="redoTest">Zadaj ponownie błędne (${wrongIdx(t, v.result).length})</button></div>` : ""}</div>
   ${top}<div class="sheet">${t.instructions ? `<p class="muted">${esc(t.instructions)}</p>` : ""}${testBody(t, v.answers, v.mode)}</div>${bottom}`);
 }
 async function submitTest() {
@@ -585,7 +628,7 @@ function engStats(sid) {
 }
 function renderEngTests(sid) {
   const t = (S.data.engProgress[sid] || {}).topics || {}; const st = engStats(sid);
-  const cell = (k, label) => { const x = t[k] || {}; return `<div style="display:grid;gap:4px;min-width:150px"><span class="small muted">${label}</span><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><label class="check"><input type="checkbox" data-edone="${k}" ${x.done ? "checked" : ""}> zrobione</label><input type="number" min="0" max="100" inputmode="numeric" data-epct="${k}" value="${typeof x.pct === "number" ? x.pct : ""}" placeholder="%" style="width:76px" aria-label="${label} w procentach">${pctChip(x.pct)}</div></div>`; };
+  const cell = (k, label) => { const x = t[k] || {}; return `<div style="display:grid;gap:4px;min-width:150px"><span class="small muted">${label}</span><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><label class="check"><input type="checkbox" data-edone="${k}" ${x.done ? "checked" : ""}> zrobione</label><input type="number" min="0" max="100" inputmode="numeric" data-epct="${k}" value="${typeof x.pct === "number" ? x.pct : ""}" placeholder="%" style="width:76px" aria-label="${label} w procentach">${pctChip(x.pct)}</div>${k.startsWith("v") ? redoCell("eng", k, ENG_AREAS[Number(k.slice(1)) - 1], x, true) : ""}</div>`; };
   return `<section class="panel"><div class="stats"><div class="stat"><span class="small muted">Testy ze słownictwa</span><b>${st.v.done}/14${st.v.avg === null ? "" : " · " + st.v.avg + "%"}</b></div><div class="stat"><span class="small muted">Wypracowania</span><b>${st.w.done}/14${st.w.avg === null ? "" : " · " + st.w.avg + "%"}</b></div></div>
   <p class="small muted">Wpisz wynik w procentach – zapisuje się sam i oznacza zadanie jako zrobione. Wypracowanie możesz też tylko odhaczyć.</p></section>
   <div class="list">${ENG_AREAS.map((n, i) => `<div class="row"><span class="num">${i + 1}</span><span class="grow"><b>${esc(n)}</b></span>${cell("v" + pad(i + 1), "Test")}${cell("w" + pad(i + 1), "Wypracowanie")}</div>`).join("")}</div>`;
@@ -630,10 +673,32 @@ function renderMatematyka() {
   const items = MATH_TOPICS.map((n, i) => { const k = tkey(i); const x = t[k] || {};
     return `<div class="row"><span class="num">${i + 1}</span><span class="grow"><b>${esc(n)}</b>${x.date ? `<span class="small muted">wpisane ${new Date(x.date).toLocaleDateString("pl-PL")}</span>` : ""}</span>
     <label class="check"><input type="checkbox" data-mdone="${k}" ${x.done ? "checked" : ""}> zrobione</label>
-    <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="number" min="0" step="0.5" inputmode="decimal" data-mpts="${k}" value="${typeof x.pts === "number" ? x.pts : ""}" placeholder="pkt" style="width:72px" aria-label="Punkty: ${esc(n)}"><span class="muted">na</span><input type="number" min="1" step="0.5" inputmode="decimal" data-mmax="${k}" value="${typeof x.max === "number" ? x.max : (mathMaxDefault(k) ?? "")}" placeholder="max" style="width:72px" aria-label="Maksymalna liczba punktów: ${esc(n)}"><span class="muted small">pkt</span></span>${pctChip(x.pct)}</div>`; }).join("");
+    <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="number" min="0" step="0.5" inputmode="decimal" data-mpts="${k}" value="${typeof x.pts === "number" ? x.pts : ""}" placeholder="pkt" style="width:72px" aria-label="Punkty: ${esc(n)}"><span class="muted">na</span><input type="number" min="1" step="0.5" inputmode="decimal" data-mmax="${k}" value="${typeof x.max === "number" ? x.max : (mathMaxDefault(k) ?? "")}" placeholder="max" style="width:72px" aria-label="Maksymalna liczba punktów: ${esc(n)}"><span class="muted small">pkt</span></span>${pctChip(x.pct)}${redoCell("mat", k, n, x)}</div>`; }).join("");
   return head + pills + `<section class="panel"><div class="head"><div><h2>${esc(s.name)}</h2><p class="small muted">${esc(s.klasa || "")}</p></div><button class="btn sm ghost" data-act="mathRemove" data-id="${s.id}">Usuń z maturzystów</button></div>
   <div class="stats"><div class="stat"><span class="small muted">Działy zrobione</span><b>${st.done}/${MATH_TOPICS.length}</b></div><div class="stat"><span class="small muted">Średni wynik</span><b>${st.avg === null ? "–" : st.avg + "%"}</b></div></div>
   <p class="small muted">Wpisz, ile punktów uczeń zdobył i na ile był test – procent liczy się sam, a dział oznacza się jako zrobiony. Maksymalna liczba punktów podpowiada się z wyników innych uczniów.</p></section><div class="list">${items}</div>`;
+}
+function redoCell(subj, k, name, x, compact) {
+  const redo = x.redo ? `<span class="small muted">zadane ponownie ${fmtDate(x.redo.slice(0, 10))}</span>` : "";
+  return `<div class="redo" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;${compact ? "" : "flex-basis:100%;padding-left:34px"}"><input type="text" data-wrong="${k}" data-wsubj="${subj}" value="${esc(x.wrong || "")}" placeholder="błędne zadania, np. 3, 7, 12" style="width:${compact ? 170 : 230}px;font-size:14px;padding:6px 8px" aria-label="Błędne zadania: ${esc(name)}"><button class="btn sm" data-act="redoTopic" data-k="${k}" data-subj="${subj}" ${x.wrong ? "" : "disabled"}>Zadaj ponownie</button>${redo}</div>`;
+}
+function redoTopicModal(subj, k) {
+  const sid = subj === "mat" ? S.selM : S.sel; const prog = (subj === "mat" ? S.data.mathProgress : S.data.engProgress)[sid] || {}; const x = (prog.topics || {})[k] || {};
+  const name = subj === "mat" ? MATH_TOPICS[MATH_KEYS.indexOf(k)] : ENG_AREAS[Number(k.slice(1)) - 1];
+  const list = String(x.wrong || "").replace(/\s+/g, " ").trim();
+  openModal({ title: `Zadaj ponownie: ${name}`, submit: "Zadaj", body: `
+  <label class="f">Tytuł zadania<input name="title" value="${esc(`Poprawa: ${subj === "mat" ? name : "test ze słownictwa – " + name} – zadania ${list}`)}"></label>
+  <label class="f">Opis (zobaczy uczeń)<textarea name="desc" rows="3">${esc(`Rozwiąż jeszcze raz zadania ${list} z testu ${subj === "mat" ? "z działu „" + name + "”" : "ze słownictwa „" + name + "”"}, które poprzednio wyszły źle. Sprawdź, gdzie był błąd.`)}</textarea></label>
+  <label class="f">Termin wykonania<input type="date" name="due" value="${defaultDue(sid)}" data-due></label>
+  <div class="acts"><span class="small muted">Termin:</span><button type="button" class="btn sm ghost" data-due-set="next">do następnej lekcji</button><button type="button" class="btn sm ghost" data-due-set="week">za tydzień</button><button type="button" class="btn sm ghost" data-due-set="none">bez terminu</button><span class="small muted" data-due-info>${dueInfo(sid)}</span></div>
+  <input type="hidden" name="sid" value="${sid}">`,
+    onMount: (f, ov) => wireDue(ov),
+    onSubmit: async fd => {
+      const title = String(fd.get("title") || "").trim(); if (!title) { toast("Wpisz tytuł."); return false; }
+      await addCustom(sid, title, String(fd.get("desc") || "").trim(), String(fd.get("due") || ""));
+      if (subj === "mat") await saveMath(sid, k, { redo: new Date().toISOString() }); else await saveEng(sid, k, { redo: new Date().toISOString() });
+      toast(`Zadane: ${sName(sid)}`); return true;
+    } });
 }
 function mathMaxDefault(k) { for (const p of Object.values(S.data.mathProgress || {})) { const x = (p.topics || {})[k]; if (x && typeof x.max === "number") return x.max; } return null; }
 async function saveMath(sid, k, patch) {
@@ -907,7 +972,7 @@ function renderDzis() {
   ${panel("Jutro", tomorrow.length ? `<div class="list">${tomorrow.map(l => lessonRow(l)).join("")}</div>` : emptyP("Jutro bez lekcji."))}
   ${panel("Oznaczone automatycznie", autoD.length ? `<div class="list">${autoD.map(l => `<div class="row"><span class="time">${esc(fmtDate(l.date))} · ${esc(l.time)}</span><span class="grow"><button class="link" type="button" data-act="editLesson" data-id="${l.id}">${esc(lzName(l))}</button><span class="small muted">${zl(Number(l.price) || 0)}</span></span>${statusChip(l.status)}<button class="btn sm ghost" data-act="setStatus" data-id="${l.id}" data-s="cancelled">Jednak odwołana</button></div>`).join("")}</div>` : emptyP("W ostatnim tygodniu nic nie oznaczyło się samo."), "Lekcje, których nie oznaczyłaś, po północy zmieniają się na odbyte i nalicza się płatność. Jeśli któraś się nie odbyła, popraw ją tutaj.")}
   ${panel("Zaległe płatności", debt.length ? `<div class="list">${debt.map(([s, b]) => `<div class="row"><span class="grow"><button class="link" type="button" data-act="stOpen" data-id="${s.id}">${esc(s.name)}</button></span><b style="color:var(--bad)">${zl(b)}</b><button class="btn sm" data-act="newPayment" data-sid="${s.id}">+ Wpłata</button></div>`).join("")}</div>` : emptyP("Nikt nie zalega z płatnością."))}
-  ${(() => { const todo = Object.values(S.data.results).filter(r => { const t = S.data.tests[r.testId]; if (!t || !t.questions) return false; const n = t.questions.filter(q => q.type === "open").length; return n && Object.keys(r.openPts || {}).length < n; }).sort((a, b) => (a.submittedAt || "").localeCompare(b.submittedAt || ""));
+  ${(() => { const todo = Object.values(S.data.results).filter(r => { const aa = S.data.assignments[r.assignmentId]; const t = aa ? testForAssign(aa) : S.data.tests[r.testId]; if (!t || !t.questions) return false; const n = t.questions.filter(q => q.type === "open").length; return n && Object.keys(r.openPts || {}).length < n; }).sort((a, b) => (a.submittedAt || "").localeCompare(b.submittedAt || ""));
     return todo.length ? panel("Do sprawdzenia", `<div class="list">${todo.map(r => { const a = S.data.assignments[r.assignmentId]; const ph = Object.values(r.photos || {}).filter(x => x.length).length; return `<div class="row"><span class="grow"><b>${esc(sName(r.studentId))}</b><span class="small muted">${esc((S.data.tests[r.testId] || {}).title || "")} · oddane ${esc(fmtDate((r.submittedAt || "").slice(0, 10)))} · zdjęcia: ${ph}</span></span>${a ? `<button class="btn sm primary" data-act="viewResult" data-id="${a.id}">Sprawdź</button>` : ""}</div>`; }).join("")}</div>`, "Zadania otwarte czekają na Twoje punkty.") : ""; })()}
   ${panel("Zadania po terminie", overdue.length ? `<div class="list">${overdue.map(a => `<div class="row"><span class="grow"><button class="link" type="button" data-act="stOpen" data-id="${a.studentId}">${esc(sName(a.studentId))}</button><span class="small muted">${esc(taskTitle(a))}</span></span><span class="chip bad">termin ${esc(fmtDate(a.due))}</span></div>`).join("")}</div>` : emptyP("Brak zaległych zadań."))}
   </div>`;
@@ -1324,13 +1389,15 @@ root.addEventListener("click", async e => {
     else if (act === "mathRemove") { if (!(await ask("Usunąć tę osobę z listy maturzystów z matematyki? Wpisane wyniki zostaną zapisane.", "Usuń z listy"))) return; await B.update("students", el.dataset.id, { mathMatura: false }); S.data.students[el.dataset.id].mathMatura = false; S.selM = "__all"; render(); }
     else if (act === "sel") { S.sel = el.dataset.id; S.showAll = false; render(); }
     else if (act === "toggleAll") { S.showAll = !S.showAll; render(); }
+    else if (act === "redoTest") { redoTestModal(); }
+    else if (act === "redoTopic") { redoTopicModal(el.dataset.subj, el.dataset.k); }
     else if (act === "giveTest") { giveTestModal(el.dataset.id); }
     else if (act === "giveMat") { giveMatModal(S.data.materials[S.view.id]); }
     else if (act === "stOpen") { studentModal(S.data.students[el.dataset.id]); }
     else if (act === "stuPdf") { const a = S.data.assignments[el.dataset.id]; if (a) printDoc({ title: a.title, category: a.category, body: a.body, extra: a.vocab ? `<div class="pbreak md">${md(a.vocab)}</div>` : "" }); }
     else if (act === "doneCustom") { await markCustomDone(el.dataset.id); toast(S.user.role === "admin" ? "Odhaczone" : "Super, zapisane!"); render(); }
     else if (act === "openTest") {
-      const a = S.data.assignments[el.dataset.id]; const t = S.data.tests[a.testId]; if (!t) return toast("Nie znaleziono testu.");
+      const a = S.data.assignments[el.dataset.id]; const t = testForAssign(a); if (!t) return toast("Nie znaleziono testu.");
       const r = S.data.results[a.id];
       let draft = {}; try { draft = JSON.parse(sessionStorage.getItem("pe_draft_" + a.id) || "{}") || {}; } catch (err) { }
       S.view = r ? { type: "test", mode: "result", test: t, assignment: a, answers: r.answers || {}, result: r } : { type: "test", mode: "take", test: t, assignment: a, answers: draft };
@@ -1349,8 +1416,8 @@ root.addEventListener("click", async e => {
     else if (act === "submitTest") await submitTest();
     else if (act === "back") { S.view = null; render(); }
     else if (act === "previewTest") { const t = S.data.tests[el.dataset.id]; S.view = { type: "test", mode: "key", test: { id: el.dataset.id, ...t }, answers: Object.fromEntries(t.questions.map((q, n) => [n, q.c])) }; render(); window.scrollTo(0, 0); }
-    else if (act === "viewResult") { const a = S.data.assignments[el.dataset.id]; const r = S.data.results[a.id]; const t = S.data.tests[a.testId]; const s = S.data.students[a.studentId];
-      S.view = { type: "test", mode: "result", test: { id: a.testId, ...t }, assignment: a, answers: r.answers || {}, result: r, who: (s ? s.name : "") + " · oddane " + new Date(r.submittedAt).toLocaleDateString("pl-PL") }; render(); window.scrollTo(0, 0); }
+    else if (act === "viewResult") { const a = S.data.assignments[el.dataset.id]; const r = S.data.results[a.id]; const t = testForAssign(a); const s = S.data.students[a.studentId];
+      S.view = { type: "test", mode: "result", test: t, assignment: a, answers: r.answers || {}, result: r, who: (s ? s.name : "") + " · oddane " + new Date(r.submittedAt).toLocaleDateString("pl-PL") }; render(); window.scrollTo(0, 0); }
     else if (act === "assignFromPlan") {
       const plan = S.data.plans[S.sel]; const i = +el.dataset.i; const nextL = plan.lessons[i + 1];
       const due = nextL ? nextL.date : iso(new Date(Date.now() + 7 * 864e5));
@@ -1383,6 +1450,11 @@ root.addEventListener("input", e => {
   }
   const k = ds.filter; if (!k) return; S.q[k] = e.target.value; applyFilter(k); });
 root.addEventListener("change", async e => {
+  if (e.target.dataset.wrong !== undefined) {
+    const k = e.target.dataset.wrong, subj = e.target.dataset.wsubj, v = e.target.value.trim();
+    try { if (subj === "mat") await saveMath(S.selM, k, { wrong: v }); else await saveEng(S.sel, k, { wrong: v }); toast(v ? "Zapisano błędne zadania" : "Wyczyszczono"); const y = window.scrollY; render(); window.scrollTo(0, y); } catch (err) { toast(errMsg(err)); }
+    return;
+  }
   if (e.target.dataset.edone || e.target.dataset.epct !== undefined) {
     try {
       if (e.target.dataset.edone) await saveEng(S.sel, e.target.dataset.edone, { done: e.target.checked });
