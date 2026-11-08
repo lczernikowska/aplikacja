@@ -959,6 +959,20 @@ async function autoComplete() {
   catch (e) { console.warn("auto", e); }
   UNDO.off = false; autoBusy = false;
 }
+/* odświeżanie danych w tle – żeby było widać, co uczniowie oddali/odhaczyli na swoich telefonach */
+let refreshBusy = false, lastRefresh = Date.now();
+async function silentRefresh(force) {
+  if (refreshBusy || !S.user || S.user.role !== "admin" || S.preview || S.busy) return;
+  if (!force && Date.now() - lastRefresh < 20000) return;
+  const ae = document.activeElement;
+  if (document.querySelector(".ov") || (ae && /INPUT|TEXTAREA|SELECT/.test(ae.tagName))) return;
+  refreshBusy = true;
+  try { await loadAdmin(); lastRefresh = Date.now(); if (!document.querySelector(".ov") && !(document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))) { const y = window.scrollY; render(); window.scrollTo(0, y); } }
+  catch (e) { console.warn("refresh", e); } finally { refreshBusy = false; }
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") silentRefresh(); });
+window.addEventListener("focus", () => silentRefresh());
+setInterval(() => { if (document.visibilityState === "visible") silentRefresh(true); }, 120000);
 let lastDay = today();
 setInterval(async () => { if (today() !== lastDay) { lastDay = today(); await autoComplete(); if (S.user && S.user.role === "admin" && !document.querySelector(".ov")) render(); } }, 60000);
 
