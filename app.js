@@ -152,8 +152,8 @@ async function syncLocalTests(results) {
         UNDO.off = true;
         const sameShape = (x, y) => Array.isArray(x) && Array.isArray(y) && x.length === y.length && x.every((q, i) => q.type === y[i].type && JSON.stringify(q.c) === JSON.stringify(y[i].c));
         if (!taken.has(lt.id) && JSON.stringify(cur) !== JSON.stringify(pub)) await B.set("tests", lt.id, pub);
-        else if (taken.has(lt.id) && JSON.stringify(cur.questions) !== JSON.stringify(pub.questions) && sameShape(cur.questions, pub.questions)) { await B.update("tests", lt.id, { questions: pub.questions, title: pub.title, topic: pub.topic, instructions: pub.instructions }); fs.questions = pub.questions; }
-        else if (cur.title !== pub.title || cur.topic !== pub.topic || cur.instructions !== pub.instructions) await B.update("tests", lt.id, { title: pub.title, topic: pub.topic, instructions: pub.instructions });
+        else if (taken.has(lt.id) && JSON.stringify(cur.questions) !== JSON.stringify(pub.questions) && sameShape(cur.questions, pub.questions)) { await B.update("tests", lt.id, { questions: pub.questions, yt: pub.yt || "", title: pub.title, topic: pub.topic, instructions: pub.instructions }); fs.questions = pub.questions; }
+        else if (cur.title !== pub.title || cur.topic !== pub.topic || cur.instructions !== pub.instructions || (pub.yt || "") !== (cur.yt || "")) await B.update("tests", lt.id, { title: pub.title, topic: pub.topic, instructions: pub.instructions, yt: pub.yt || "" });
       } catch (e) { console.warn("sync test", e); } finally { UNDO.off = false; }
     }
     S.data.tests[lt.id] = { ...(fs && taken.has(lt.id) ? fs : pub), id: lt.id, _pub: pub, _local: !fs, title: lt.adminTitle || lt.title, topic: lt.adminTopic || lt.topic };
@@ -485,6 +485,11 @@ const qScore = (q, a, ov) => { if (q.type === "open") return 0; if (ov === 1) re
 const scoreTest = (t, answers, over) => t.questions.reduce((s, q, n) => s + qScore(q, answers[n], (over || {})[n]), 0);
 const maxTest = t => t.questions.reduce((s, q) => s + qMax(q), 0);
 const openPts = t => t.questions.reduce((s, q) => s + (q.type === "open" ? q.pts || 0 : 0), 0);
+const ytId = u => { const m = String(u || "").match(/(?:v=|youtu\.be\/|embed\/)([\w-]{11})/); return m ? m[1] : ""; };
+function ytBox(t) {
+  const id = ytId(t.yt); if (!id) return "";
+  return `<div class="ytbox"><p class="eyebrow">🎧 Nagranie do zadań</p><div class="ytframe"><iframe src="https://www.youtube-nocookie.com/embed/${id}?rel=0" title="Nagranie" allow="accelerometer; encrypted-media; picture-in-picture" allowfullscreen loading="lazy"></iframe></div><p class="small muted">Nagranie nie działa? <a href="https://www.youtube.com/watch?v=${id}" target="_blank" rel="noopener">Otwórz je na YouTube</a>. Słuchaj po kolei i zaznaczaj odpowiedzi – na maturze każdy tekst słyszysz dwa razy.</p></div>`;
+}
 function qHtml(q, n, answers, mode) {
   const mine = answers[n]; const review = mode !== "take";
   const isMulti = q.type === "multi";
@@ -560,7 +565,7 @@ function renderTest() {
     top = `<div class="scorecard"><span class="score">${r.score}/${r.max}</span><div><b>${pct(r.score, r.max)}%</b><p class="small muted">${op ? `${t.subject === "ang" ? "Sprawdzane automatycznie" : "Zadania zamknięte"}: ${cs ?? "–"}/${cm ?? "–"} pkt · ${t.subject === "ang" ? "wypowiedź pisemna" : "zadania otwarte"}: ${graded ? `${og}/${op} pkt${graded < nOpen ? ` (sprawdzone ${graded} z ${nOpen})` : ""}` : `${op} pkt – ${t.subject === "ang" ? "czeka" : "czekają"} na sprawdzenie`}` : "Przejrzyj wyjaśnienia przy pytaniach, zwłaszcza tam, gdzie jest „Źle”."}</p></div></div>`;
   } else top = `<div class="notice small">Podgląd z kluczem odpowiedzi i wyjaśnieniami.</div>`;
   root.innerHTML = frame(`<div class="head"><div><button class="btn sm ghost" data-act="back" style="justify-self:start">← Wróć</button><p class="eyebrow">${esc(t.topic || "")}${t.level ? " · " + esc(t.level) : ""}</p><h1>${v.assignment && v.assignment.only ? "Poprawa: " : ""}${esc(t.title)}</h1>${v.assignment && v.assignment.only ? `<p class="small muted">Tylko zadania, które poprzednio wyszły źle (${v.assignment.only.length}).</p>` : ""}${v.who ? `<p class="muted">${esc(v.who)}</p>` : ""}</div>${v.mode === "key" && S.user.role === "admin" && !S.preview ? `<div class="acts"><button class="btn primary" data-act="giveTest" data-id="${esc(t.id)}">Zadaj uczniowi</button></div>` : ""}${v.mode === "result" && S.user.role === "admin" && !S.preview && v.result ? `<div class="acts"><button class="btn mustard" data-act="redoTest">Zadaj ponownie błędne (${wrongIdx(t, v.result).length})</button></div>` : ""}</div>
-  ${top}<div class="sheet">${t.instructions ? `<p class="muted">${esc(t.instructions)}</p>` : ""}${testBody(t, v.answers, v.mode)}</div>${bottom}`);
+  ${top}<div class="sheet">${t.instructions ? `<p class="muted">${esc(t.instructions)}</p>` : ""}${ytBox(t)}${testBody(t, v.answers, v.mode)}</div>${bottom}`);
 }
 async function submitTest() {
   if (S.preview) { toast("To tylko podgląd – test nie zostanie oddany."); return; }
