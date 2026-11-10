@@ -881,7 +881,7 @@ function renderTesty() {
   <div class="pills"><button data-act="tGrp" data-k="" aria-pressed="${!S.tGrp}">Wszystkie (${ts.length})</button>${gl.map(g => `<button data-act="tGrp" data-k="${esc(g.key)}" aria-pressed="${S.tGrp === g.key}">${esc(g.label)} (${g.list.length})</button>`).join("")}</div>
   ${searchBox("testy", "np. Człowiek, B2+, personality, czytanka 1")}
   ${shown.map(g => `${S.tGrp ? "" : `<h3 style="margin:18px 0 6px">${esc(g.label)}</h3>`}<div class="list">${g.list.map(row).join("")}</div>`).join("") || '<p class="empty">Brak testów.</p>'}
-  <form class="panel" id="importForm"><h2>Dodaj test z kodu</h2><p class="small muted">Wklej kod testu, który przygotuje Ci Claude (jeden test albo listę testów).</p><textarea name="json" rows="5" placeholder='{"id":"...","title":"...","questions":[...]}'></textarea><div><button class="btn primary" type="submit">Dodaj do banku</button></div></form>`;
+`;
 }
 
 /* ---------------- Laura: uczniowie ---------------- */
