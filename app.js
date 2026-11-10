@@ -845,13 +845,15 @@ function renderPlatnosci() {
 function renderZadania() {
   const st = Object.values(S.data.students).sort((a, b) => a.name.localeCompare(b.name, "pl"));
   const ts = Object.values(S.data.tests).sort((a, b) => a.title.localeCompare(b.title, "pl"));
-  const as = Object.values(S.data.assignments).sort((a, b) => (b.due || "").localeCompare(a.due || ""));
+  const allA = Object.values(S.data.assignments).sort((a, b) => (b.due || "").localeCompare(a.due || ""));
+  const nArchA = allA.filter(a => a.archived).length; if (!nArchA) S.showArchZ = false;
+  const as = allA.filter(a => !!a.archived === !!S.showArchZ);
   return `<div class="head"><div><p class="eyebrow">Testy i zadania własne</p><h1>Zadania domowe</h1></div></div>
-  <form class="panel" id="assignForm" style="display:grid;gap:12px"><h2>Zadaj zadanie</h2>${assignFormHtml(null)}</form>
-  <section class="panel"><h2>Wszystkie zadania</h2>${as.length ? `<div class="tablewrap"><table><thead><tr><th>Uczeń</th><th>Zadanie</th><th>Termin</th><th>Wynik</th><th></th></tr></thead><tbody>
+  ${S.showArchZ ? "" : `<form class="panel" id="assignForm" style="display:grid;gap:12px"><h2>Zadaj zadanie</h2>${assignFormHtml(null)}</form>`}
+  <section class="panel"><div class="row" style="padding:0;border:0;background:none"><h2 class="grow" style="margin:0">${S.showArchZ ? "Archiwum zadań" : "Wszystkie zadania"}</h2>${nArchA || S.showArchZ ? `<button class="btn sm ghost" data-act="toggleArchZ">${S.showArchZ ? "← Aktualne zadania" : `Archiwum (${nArchA})`}</button>` : ""}</div>${as.length ? `<div class="tablewrap"><table><thead><tr><th>Uczeń</th><th>Zadanie</th><th>Termin</th><th>Wynik</th><th></th></tr></thead><tbody>
   ${as.map(a => { const r = S.data.results[a.id]; const s = S.data.students[a.studentId]; const cu = ownKind(a);
     return `<tr class="${r && !cu ? "click" : ""}" ${r && !cu ? `data-act="viewResult" data-id="${a.id}"` : ""}><td>${esc(s ? s.name : "?")}</td><td style="white-space:normal">${esc(taskTitle(a))}${cu ? ` <span class="chip">${a.kind === "material" ? "materiał" : "własne"}</span>` : ""}</td><td>${fmtDate(a.due)}</td><td>${cu ? (r ? `<span class="chip ok" title="${r.by === "teacher" ? "odhaczone przez Ciebie" : "odhaczone przez ucznia"}">zrobione${r.by === "student" ? " (uczeń)" : ""}</span> <button class="btn sm ghost" data-act="undoneCustom" data-id="${a.id}" title="Cofnij odhaczenie">↺ nie zrobione</button>` : `${a.due && a.due < today() ? '<span class="chip bad">po terminie</span> ' : ""}<button class="btn sm" data-act="doneCustom" data-id="${a.id}">Odhacz</button>`) : r ? `<span class="chip ${pct(r.score, r.max) >= 70 ? "ok" : pct(r.score, r.max) >= 50 ? "warn" : "bad"}">${r.score}/${r.max} · ${pct(r.score, r.max)}%</span>` : a.due && a.due < today() ? '<span class="chip bad">po terminie</span>' : '<span class="chip">czeka</span>'}</td>
-    <td>${r ? "" : `<button class="btn sm ghost" data-act="delAssign" data-id="${a.id}">usuń</button>`}</td></tr>`; }).join("")}</tbody></table></div>` : '<p class="empty">Nic jeszcze nie zadano.</p>'}</section>`;
+    <td style="white-space:nowrap"><button class="btn sm ghost" data-act="archAssign" data-id="${a.id}" data-v="${a.archived ? 0 : 1}">${a.archived ? "↩ przywróć" : "do archiwum"}</button>${r ? "" : `<button class="btn sm ghost" data-act="delAssign" data-id="${a.id}">usuń</button>`}</td></tr>`; }).join("")}</tbody></table></div>` : `<p class="empty">${S.showArchZ ? "Archiwum jest puste." : "Nic jeszcze nie zadano."}</p>`}</section>`;
 }
 
 /* ---------------- Laura: bank testów ---------------- */
@@ -1006,7 +1008,7 @@ function renderDzis() {
   const tomorrow = L.filter(l => l.date === addDays(t, 1) && l.status === "planned").sort(byDT);
   const weekAgo = addDays(t, -7);
   const autoD = L.filter(l => l.autoDone && l.status === "done" && l.date >= weekAgo && l.date < t).sort(byDT).reverse();
-  const overdue = Object.values(S.data.assignments).filter(a => a.due && a.due < t && !S.data.results[a.id] && S.data.students[a.studentId] && !S.data.students[a.studentId].archived).sort((a, b) => a.due.localeCompare(b.due));
+  const overdue = Object.values(S.data.assignments).filter(a => !a.archived && a.due && a.due < t && !S.data.results[a.id] && S.data.students[a.studentId] && !S.data.students[a.studentId].archived).sort((a, b) => a.due.localeCompare(b.due));
   const debt = activeStudents().map(s => [s, balFor(s.id).bal]).filter(x => x[1] > 0).sort((a, b) => b[1] - a[1]);
   return `<div class="head"><div><p class="eyebrow">${esc(longDate(t))}</p><h1>Dziś</h1></div><div class="acts"><button class="btn primary" data-act="newLesson" data-date="${t}">+ Lekcja</button><button class="btn" data-act="newPayment">+ Wpłata</button></div></div>
   <div class="grid2">
@@ -1342,6 +1344,7 @@ async function korepAct(act, el) {
   if (act === "newPayment") { paymentForm(el.dataset.sid || "", el.dataset.amt != null ? Number(el.dataset.amt) : undefined, el.dataset.note); return true; }
   if (act === "newCharge") { chargeForm(el.dataset.sid || ""); return true; }
   if (act === "newStudent") { studentForm(null); return true; }
+  if (act === "toggleArchZ") { S.showArchZ = !S.showArchZ; render(); return true; }
   if (act === "toggleArch") { S.showArch = !S.showArch; render(); return true; }
   if (act === "calMove") { const d = Number(el.dataset.d); S.calAnchor = S.calMode === "week" ? addDays(S.calAnchor, 7 * d) : (() => { const a = parseD(S.calAnchor); return iso(new Date(a.getFullYear(), a.getMonth() + d, 1)); })(); render(); return true; }
   if (act === "cancelDay") {
@@ -1478,6 +1481,7 @@ root.addEventListener("click", async e => {
       for (let k = L.length - 1; k >= i; k--) { const s2 = k + 1 < L.length ? slots[k + 1] : { date: iso(last), time: L[k].time }; L[k].date = s2.date; L[k].time = s2.time; }
       await B.set("plans", S.sel, plan); toast("Przesunięto"); render();
     }
+    else if (act === "archAssign") { const a = S.data.assignments[el.dataset.id]; if (!a) return; const { id: aid, ...rest } = a; const v = el.dataset.v === "1"; if (v) rest.archived = true; else delete rest.archived; await putDoc("assignments", aid, rest); render(); toast(v ? "Przeniesiono do archiwum" : "Przywrócono z archiwum"); }
     else if (act === "delAssign") { if (!(await ask("Usunąć to zadanie?", "Usuń"))) return; await B.del("assignments", el.dataset.id); delete S.data.assignments[el.dataset.id]; render(); }
     else if (act === "makeLogin") loginModal(S.data.students[el.dataset.id]);
     else if (act === "seed") { if (!S.busy) await seedAll(); }
