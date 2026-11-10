@@ -479,7 +479,7 @@ function redoTestModal() {
 }
 const qMax = q => q.type === "open" ? 0 : q.type === "multi" ? q.c.length : (q.pts || 1);
 const normAns = x => String(x || "").replace(/[’‘`´]/g, "'").replace(/\s+/g, " ").trim().replace(/[.!?,;]+$/, "").toLowerCase();
-const mathNorm = x => normAns(x).replace(/\s+/g, "").replace(/[−–—]/g, "-").replace(/;/g, ",").replace(/</g, "[").replace(/>/g, "]").replace(/^x(∈|=|\\in)/, "").replace(/\.(?=\d)/g, ",").replace(/∞/g, "inf").replace(/\+inf/g, "inf");
+const mathNorm = x => normAns(x).replace(/\s+/g, "").replace(/²/g, "^2").replace(/[−–—]/g, "-").replace(/;/g, ",").replace(/</g, "[").replace(/>/g, "]").replace(/^x(∈|=|\\in)/, "").replace(/\.(?=\d)/g, ",").replace(/∞/g, "inf").replace(/\+inf/g, "inf");
 const textOk = (q, a) => { const N = q.math ? mathNorm : normAns; const v = N(a); if (!v) return false; return (q.acc || []).some(x => N(x) === v) && !(q.caseI && /\bi\b/.test(String(a).replace(/[A-Z]/g, ""))); };
 const qScore = (q, a, ov) => { if (q.type === "open") return 0; if (ov === 1) return qMax(q); if (ov === 0) return 0; if (a === undefined) return 0; if (q.type === "text") return textOk(q, a) ? 1 : 0; if (q.type === "multi") return Math.min(q.c.length, (a || []).filter(x => q.c.includes(x)).length); return a === q.c ? (q.pts || 1) : 0; };
 const scoreTest = (t, answers, over) => t.questions.reduce((s, q, n) => s + qScore(q, answers[n], (over || {})[n]), 0);
