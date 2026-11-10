@@ -857,11 +857,29 @@ function renderZadania() {
 }
 
 /* ---------------- Laura: bank testów ---------------- */
+const CEFR = ["A1", "A2", "B1", "B2", "B2+", "C1", "C2"];
+function testGroup(t) {
+  const L = t.level || "", title = t.title || "";
+  const subj = t.subject || (CEFR.includes(L) || /angiel|czytanka/i.test(title) ? "ang" : /matem/i.test(title) ? "mat" : "");
+  let k, lab, r;
+  if (L === "SP") { const m = title.match(/(\d)\s*klas/i) || title.match(/klas[aiey]?\s*(\d)/i); if (m) { k = "kl" + m[1]; lab = "klasa " + m[1]; r = Number(m[1]); } else { k = "SP"; lab = "szkoła podstawowa"; r = 9; } }
+  else if (L === "PP") { k = "PP"; lab = "matura podstawowa"; r = 10; }
+  else if (L === "PR") { k = "PR"; lab = "matura rozszerzona"; r = 11; }
+  else if (CEFR.includes(L)) { k = L; lab = "poziom " + L; r = 12 + CEFR.indexOf(L); }
+  else { k = L || "inne"; lab = L || "inne"; r = 30; }
+  return { key: subj + "|" + k, label: (SUBJ_UP[subj] || "Inne") + " · " + lab, rank: ({ mat: 0, ang: 100 }[subj] ?? 200) + r };
+}
 function renderTesty() {
-  const ts = Object.values(S.data.tests).sort((a, b) => (a.level || "").localeCompare(b.level || "") || a.title.localeCompare(b.title, "pl"));
+  const ts = Object.values(S.data.tests).sort((a, b) => a.title.localeCompare(b.title, "pl", { numeric: true }));
+  const groups = {}; ts.forEach(t => { const g = testGroup(t); (groups[g.key] = groups[g.key] || { ...g, list: [] }).list.push(t); });
+  const gl = Object.values(groups).sort((a, b) => a.rank - b.rank);
+  if (S.tGrp && !groups[S.tGrp]) S.tGrp = "";
+  const row = t => `<div class="row" data-s-testy="${esc(testText(t))}"><span class="grow"><b>${esc(t.title)}</b><span class="small muted">${esc(t.topic || "")} · ${t.questions.length} pytań${t.passages && t.passages.length ? " · z tekstem" : ""}</span></span><span class="chip acc">${esc(t.level || "")}</span><button class="btn sm" data-act="previewTest" data-id="${t.id}">Podgląd</button><button class="btn sm primary" data-act="giveTest" data-id="${t.id}">Zadaj</button></div>`;
+  const shown = S.tGrp ? [groups[S.tGrp]] : gl;
   return `<div class="head"><div><p class="eyebrow">Czytanki i testy</p><h1>Bank testów</h1></div></div>
+  <div class="pills"><button data-act="tGrp" data-k="" aria-pressed="${!S.tGrp}">Wszystkie (${ts.length})</button>${gl.map(g => `<button data-act="tGrp" data-k="${esc(g.key)}" aria-pressed="${S.tGrp === g.key}">${esc(g.label)} (${g.list.length})</button>`).join("")}</div>
   ${searchBox("testy", "np. Człowiek, B2+, personality, czytanka 1")}
-  <div class="list">${ts.map(t => `<div class="row" data-s-testy="${esc(testText(t))}"><span class="grow"><b>${esc(t.title)}</b><span class="small muted">${esc(t.topic || "")} · ${t.questions.length} pytań${t.passages && t.passages.length ? " · z tekstem" : ""}</span></span><span class="chip acc">${esc(t.level || "")}</span><button class="btn sm" data-act="previewTest" data-id="${t.id}">Podgląd</button><button class="btn sm primary" data-act="giveTest" data-id="${t.id}">Zadaj</button></div>`).join("") || '<p class="empty">Brak testów.</p>'}</div>
+  ${shown.map(g => `${S.tGrp ? "" : `<h3 style="margin:18px 0 6px">${esc(g.label)}</h3>`}<div class="list">${g.list.map(row).join("")}</div>`).join("") || '<p class="empty">Brak testów.</p>'}
   <form class="panel" id="importForm"><h2>Dodaj test z kodu</h2><p class="small muted">Wklej kod testu, który przygotuje Ci Claude (jeden test albo listę testów).</p><textarea name="json" rows="5" placeholder='{"id":"...","title":"...","questions":[...]}'></textarea><div><button class="btn primary" type="submit">Dodaj do banku</button></div></form>`;
 }
 
@@ -1344,6 +1362,7 @@ async function korepAct(act, el) {
   if (act === "newPayment") { paymentForm(el.dataset.sid || "", el.dataset.amt != null ? Number(el.dataset.amt) : undefined, el.dataset.note); return true; }
   if (act === "newCharge") { chargeForm(el.dataset.sid || ""); return true; }
   if (act === "newStudent") { studentForm(null); return true; }
+  if (act === "tGrp") { S.tGrp = el.dataset.k; render(); return true; }
   if (act === "toggleArchZ") { S.showArchZ = !S.showArchZ; render(); return true; }
   if (act === "toggleArch") { S.showArch = !S.showArch; render(); return true; }
   if (act === "calMove") { const d = Number(el.dataset.d); S.calAnchor = S.calMode === "week" ? addDays(S.calAnchor, 7 * d) : (() => { const a = parseD(S.calAnchor); return iso(new Date(a.getFullYear(), a.getMonth() + d, 1)); })(); render(); return true; }
