@@ -990,7 +990,7 @@ async function autoComplete() {
   const t = today(); const due = lessonsArr().filter(l => l.status === "planned" && l.date < t);
   if (!due.length) return;
   autoBusy = true; UNDO.off = true;
-  try { for (const l of due) { const d = { status: "done", autoDone: true, updatedAt: new Date().toISOString() }; await B.update("lessons", l.id, d); Object.assign(S.data.lessons[l.id], d); } }
+  try { const d = { status: "done", autoDone: true, updatedAt: new Date().toISOString() }; await B.bulk("lessons", due.map(l => [l.id, d])); for (const l of due) Object.assign(S.data.lessons[l.id], d); }
   catch (e) { console.warn("auto", e); }
   UNDO.off = false; autoBusy = false;
 }
@@ -1107,7 +1107,7 @@ function lessonForm(id, pre = {}) {
           m.ov.remove();
           if (fut.length) {
             openModal({ title: "Usuń lekcję", submit: "Usuń", body: `<p>Usunąć tylko tę lekcję czy też ${fut.length} ${plural(fut.length, "kolejną zaplanowaną", "kolejne zaplanowane", "kolejnych zaplanowanych")} z tej serii?</p><label class="check"><input type="radio" name="w" value="one" checked> tylko tę</label><label class="check"><input type="radio" name="w" value="all"> tę i kolejne z serii</label><p class="small muted">Odbytych lekcji nie usuwam. Jeśli lekcja się nie odbyła, lepiej ustaw ją jako odwołaną.</p>`,
-              onSubmit: async fd => { await delDoc("lessons", id); if (fd.get("w") === "all") for (const x of fut) await delDoc("lessons", x.id); toast("Usunięto"); return true; } });
+              onSubmit: async fd => { await delDoc("lessons", id); if (fd.get("w") === "all") await Promise.all(fut.map(x => delDoc("lessons", x.id))); toast("Usunięto"); return true; } });
           } else if (await ask("Usunąć tę lekcję? Jeśli się nie odbyła, lepiej ustaw ją jako odwołaną.", "Usuń")) { await delDoc("lessons", id); toast("Usunięto"); render(); } else render();
         }
       });
@@ -1123,8 +1123,10 @@ function lessonForm(id, pre = {}) {
       if (id) {
         await putDoc("lessons", id, base);
         if (fd.get("scope") === "series" && later.length) {
-          const shift = Math.round((parseD(date) - parseD(l.date)) / 864e5); let n = 0;
-          for (const x of later) { const { id: xid, ...rest } = x; await putDoc("lessons", xid, { ...rest, studentId: sid, subject, time, duration: base.duration, price, date: addDays(x.date, shift), updatedAt: base.updatedAt }); n++; }
+          const shift = Math.round((parseD(date) - parseD(l.date)) / 864e5);
+          const batch = later.map(x => { const { id: xid, ...rest } = x; return [xid, { ...rest, studentId: sid, subject, time, duration: base.duration, price, date: addDays(x.date, shift), updatedAt: base.updatedAt }]; });
+          await B.bulk("lessons", batch); for (const [k, v] of batch) S.data.lessons[k] = { id: k, ...v };
+          const n = batch.length;
           toast(`Zmieniono ${n + 1} ${plural(n + 1, "lekcję", "lekcje", "lekcji")} w serii`); return true;
         }
         toast("Zapisano lekcję"); return true;
@@ -1637,7 +1639,8 @@ for (const ev of ["click", "change", "submit"]) document.addEventListener(ev, e 
 function withUndo(B) {
   const isAdmin = () => S.user && S.user.role === "admin" && !UNDO.off;
   const cached = (c, id) => S.data && S.data[c] && typeof S.data[c] === "object" && !Array.isArray(S.data[c]) ? S.data[c][id] : undefined;
-  const before = async (c, id) => { try { return stripId(await B.get(c, id)); } catch (e) { const x = cached(c, id); return x === undefined ? null : stripId(x); } };
+  // stan „przed” bierzemy z pamięci aplikacji (bez dodatkowego zapytania do serwera – to spowalniało każdy zapis)
+  const before = async (c, id) => { const x = cached(c, id); if (x !== undefined) return stripId(x); try { return stripId(await B.get(c, id)); } catch (e) { return null; } };
   const W = Object.create(B);
   for (const m of ["set", "update", "del"]) W[m] = async (c, id, d) => { if (isAdmin()) undoRec(c, id, await before(c, id)); return B[m](c, id, d); };
   W.bulk = async (c, entries, onProg) => { if (isAdmin()) for (const [id] of entries) { const x = cached(c, id); undoRec(c, id, x === undefined ? null : stripId(x)); } return B.bulk(c, entries, onProg); };
