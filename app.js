@@ -511,7 +511,7 @@ function qHtml(q, n, answers, mode) {
     let rev = "";
     if (review && mode !== "key") rev = `<span class="verdict ${pts ? "ok" : "bad"}">${pts ? "Dobrze" : "Źle"}${ov !== undefined ? " · decyzja nauczycielki" : ""}</span>${isAdmin && mode === "result" ? ` <button type="button" class="btn sm ghost" data-act="ovr" data-n="${n}" data-v="${pts ? 0 : 1}">${pts ? "Nie uznaj" : "Uznaj odpowiedź"}</button>${ov !== undefined ? ` <button type="button" class="btn sm ghost" data-act="ovr" data-n="${n}" data-v="">Przywróć automat</button>` : ""}` : ""}`;
     if (review) rev += `<div class="expl"><b>${q.e ? "Wyjaśnienie" : "Poprawne odpowiedzi"}</b><span>${esc(q.e || "")}${(q.acc || []).length > 1 ? `<br><span class="small muted">Akceptowane m.in.: ${esc(q.acc.slice(0, 8).join(" / "))}</span>` : ""}</span></div>`;
-    return `${intro}${q.imgs ? `<div class="q qgrp">${(q.imgs || []).map(u => `<img class="qimg" src="${esc(u)}" alt="Zadanie" loading="lazy">`).join("")}</div>` : ""}<div class="q qitem"><span class="qn">${esc(label)}</span>${input}${rev}</div>`;
+    return `${intro}${q.imgs ? `<div class="q qgrp">${(q.imgs || []).map(u => `<img class="qimg" src="${esc(u)}" alt="Zadanie" loading="lazy">`).join("")}</div>` : ""}<div class="q qitem"><span class="qn">${esc(label)}</span>${q.t ? `<div class="qt">${esc(q.t)}</div>` : ""}${input}${rev}</div>`;
   }
   if (q.type === "open" && q.write) {
     const g = (rv.openPts || {})[n]; const txt = mode === "take" ? (mine ?? q.start ?? "") : (mine || "");
