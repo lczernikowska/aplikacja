@@ -288,14 +288,18 @@ function giveTestModal(tid) {
   const g = [...new Set(Object.values(S.data.assignments).filter(a => a.testId === tid).map(a => sName(a.studentId)))];
   openModal({ title: `Zadaj: ${t.title}`, submit: "Zadaj", body: `${g.length ? `<p class="small">Już dostali: <b>${esc(g.join(", "))}</b></p>` : ""}
   <label class="f">Uczeń<select name="sid" required><option value="">Wybierz ucznia…</option>${activeStudents().map(s => `<option value="${s.id}">${had(s.id).length ? "✓ " : ""}${esc(s.name)}</option>`).join("")}</select></label>
+  <details><summary class="small" style="cursor:pointer">+ Zadaj też innym uczniom</summary><div style="display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:8px">${activeStudents().map(s => `<label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" name="sids" value="${s.id}">${had(s.id).length ? "✓ " : ""}${esc(s.name)}</label>`).join("")}</div></details>
   <label class="f">Termin wykonania<input type="date" name="due" value="${weekAhead()}" data-due></label>
-  <div class="acts"><span class="small muted">Termin:</span><button type="button" class="btn sm ghost" data-due-set="next">do następnej lekcji</button><button type="button" class="btn sm ghost" data-due-set="week">za tydzień</button><button type="button" class="btn sm ghost" data-due-set="none">bez terminu</button><span class="small muted" data-due-info></span></div>`,
+  <div class="acts"><span class="small muted">Termin:</span><button type="button" class="btn sm ghost" data-due-set="next">do następnej lekcji</button><button type="button" class="btn sm ghost" data-due-set="week">za tydzień</button><button type="button" class="btn sm ghost" data-due-set="none">bez terminu</button><span class="small muted" data-due-info></span></div>
+  <p class="small muted">Kilka różnych testów z jednym terminem zadasz w „Zadania domowe” → „+ Dodaj do listy”.</p>`,
     onMount: (f, ov) => wireDue(ov),
     onSubmit: async fd => {
-      const sid = String(fd.get("sid") || ""); if (!sid) { toast("Wybierz ucznia."); return false; }
-      const was = had(sid)[0];
-      if (was && !(await ask(`${sName(sid)} dostał/a już ten test${was.due ? " (termin " + fmtDate(was.due) + ")" : ""}. Zadać jeszcze raz?`, "Zadaj mimo to"))) return false;
-      await addAssignment(sid, tid, String(fd.get("due") || "")); toast(`Zadane: ${sName(sid)}`); return true;
+      const sids = [...new Set([String(fd.get("sid") || ""), ...fd.getAll("sids")].filter(Boolean))]; if (!sids.length) { toast("Wybierz ucznia."); return false; }
+      const dup = sids.filter(sid => had(sid).length);
+      if (dup.length && !(await ask(`Ten test dostał/a już: ${dup.map(sName).join(", ")}. Zadać jeszcze raz?`, "Zadaj mimo to"))) return false;
+      const due = String(fd.get("due") || "");
+      for (const sid of sids) await addAssignment(sid, tid, due);
+      toast(`Zadane: ${sids.map(sName).join(", ")}`); return true;
     } });
 }
 function giveMatModal(m) {
