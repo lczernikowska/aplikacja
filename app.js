@@ -274,7 +274,9 @@ function assignFormHtml(sid) {
   <label class="f">Opis (opcjonalnie)<textarea name="desc" rows="3" placeholder="np. Arkusz maj 2023, zadania 5–12. Rozwiązania przynieś na lekcję."></textarea></label></div>
   <div data-kind="material" hidden style="display:grid;gap:8px"><input type="search" data-filter-for="mid" placeholder="Wpisz, żeby wyszukać materiał, np. zestaw 05, PLUS, praca" autocomplete="off"><label class="f">Materiał<select name="mid">${Object.values(S.data.materials || {}).sort((a, b) => (a.no || 0) - (b.no || 0)).map(m => { const g = sid ? givenTo(sid, m.id) : []; return `<option value="${m.id}">${g.length ? "✓ " : ""}${esc(m.title)}${g.length ? " (już dostał/a)" : ""}</option>`; }).join("")}</select></label><span class="small muted">Uczeń zobaczy przycisk „Pobierz PDF” – zestaw bez odpowiedzi, ze słówkami na końcu.</span></div>
   <div data-kind="test" hidden style="display:grid;gap:8px"><input type="search" data-filter-for="tid" placeholder="Wpisz, żeby wyszukać test, np. liczby, matura 2023, czytanka" autocomplete="off"><label class="f">Test<select name="tid">${ts.map(t => `<option value="${t.id}">${esc(t.title)} (${esc(t.level || "")})</option>`).join("")}</select></label></div>
-  <div><button class="btn primary" type="submit">Zadaj</button></div>`;
+  ${sid ? "" : `<details data-more-st><summary class="small" style="cursor:pointer">+ Zadaj też innym uczniom <span class="small muted" data-more-n></span></summary><div style="display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:8px">${st.map(s => `<label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" name="sids" value="${s.id}">${esc(s.name)}</label>`).join("")}</div></details>`}
+  <div data-basket hidden style="display:grid;gap:6px;border:1px dashed var(--line);border-radius:10px;padding:10px"><span class="small muted">Lista do zadania (jeden termin):</span><div data-basket-list style="display:flex;flex-wrap:wrap;gap:6px"></div></div>
+  <div class="acts"><button type="button" class="btn ghost" data-add-item>+ Dodaj do listy i wybierz kolejne</button><button class="btn primary" type="submit" data-submit-lbl>Zadaj</button></div>`;
 }
 async function addCustom(sid, title, desc, due) {
   const id = rid(); const a = { studentId: sid, kind: "custom", title, desc: desc || "", due: due || "", createdAt: new Date().toISOString() };
@@ -307,16 +309,38 @@ function giveMatModal(m) {
     onMount: (f, ov) => wireDue(ov),
     onSubmit: async fd => { const sid = String(fd.get("sid") || ""); if (!sid) { toast("Wybierz ucznia."); return false; } const ok = await giveMaterial(sid, m, { due: String(fd.get("due") || ""), atLesson: fd.get("how") === "lesson" }); if (ok) toast("Zapisane"); return ok; } });
 }
-async function giveMaterial(sid, m, { due = "", atLesson = false } = {}) {
+async function giveMaterial(sid, m, { due = "", atLesson = false, noAsk = false } = {}) {
   const was = givenTo(sid, m.id);
-  if (was.length && !(await ask(`${sName(sid)} dostał/a już „${m.title}” (${fmtDate((was[0].createdAt || "").slice(0, 10))}). Dać jeszcze raz?`, "Daj mimo to"))) return false;
+  if (was.length && !noAsk && !(await ask(`${sName(sid)} dostał/a już „${m.title}” (${fmtDate((was[0].createdAt || "").slice(0, 10))}). Dać jeszcze raz?`, "Daj mimo to"))) return false;
   const id = rid(); const now = new Date().toISOString();
   const a = { studentId: sid, kind: "material", matId: m.id, title: m.title, category: m.category || "", body: m.body || "", vocab: splitKey(m.key), due: atLesson ? "" : due, atLesson, createdAt: now };
   await B.set("assignments", id, a); S.data.assignments[id] = { id, ...a };
   if (atLesson) { const r = { assignmentId: id, studentId: sid, kind: "material", doneAt: now, by: "teacher" }; await B.set("results", id, r); S.data.results[id] = r; }
   return true;
 }
+function currentItem(f) {
+  const k = f.get("kind");
+  if (k === "test") { const id = f.get("tid"); const t = S.data.tests[id]; return id && t ? { kind: "test", id, label: t.title } : null; }
+  if (k === "material") { const id = f.get("mid"); const m = (S.data.materials || {})[id]; return m ? { kind: "material", id, label: m.title } : null; }
+  const title = String(f.get("title") || "").trim(); return title ? { kind: "custom", title, desc: String(f.get("desc") || "").trim(), label: title } : null;
+}
 async function submitAssign(f) {
+  const items = f.getAll("item").map(x => JSON.parse(x));
+  const sids = [...new Set([f.get("sid"), ...f.getAll("sids")].filter(Boolean))];
+  if (items.length || sids.length > 1) {
+    const list = items.length ? items : [currentItem(f)].filter(Boolean);
+    if (!list.length) { toast(f.get("kind") === "custom" ? "Wpisz tytuł zadania." : "Wybierz, co zadać."); return false; }
+    const due = f.get("due");
+    const dup = []; for (const sid of sids) for (const it of list) { if (it.kind === "test" && Object.values(S.data.assignments).some(a => a.studentId === sid && a.testId === it.id)) dup.push(`${sName(sid)}: ${it.label}`); if (it.kind === "material" && givenTo(sid, it.id).length) dup.push(`${sName(sid)}: ${it.label}`); }
+    if (dup.length && !(await ask(`Niektóre zadania już były zadane:\n${dup.slice(0, 8).join("\n")}${dup.length > 8 ? `\n…i ${dup.length - 8} więcej` : ""}\nZadać mimo to?`, "Zadaj mimo to"))) return false;
+    S.busy = true; let n = 0;
+    try { for (const sid of sids) for (const it of list) {
+      if (it.kind === "test") await addAssignment(sid, it.id, due);
+      else if (it.kind === "material") await giveMaterial(sid, S.data.materials[it.id], { due, noAsk: true });
+      else await addCustom(sid, it.title, it.desc, due);
+      n++; } } catch (e) { toast(errMsg(e)); S.busy = false; return false; }
+    S.busy = false; toast(`Zadane: ${n} ${n === 1 ? "zadanie" : n < 5 ? "zadania" : "zadań"}${sids.length > 1 ? ` (${sids.length} uczniów)` : ""}${due ? " · termin " + fmtDate(due) : ""}`); return true;
+  }
   const sid = f.get("sid"), due = f.get("due");
   if (f.get("kind") === "test") {
     if (!f.get("tid")) { toast("Wybierz test."); return false; }
@@ -366,6 +390,25 @@ function wireKind(scope) {
   const sel = scope.querySelector("[data-kindsel]"); if (!sel) return;
   const upd = () => scope.querySelectorAll("[data-kind]").forEach(d => { d.hidden = d.dataset.kind !== sel.value; });
   sel.addEventListener("change", upd); upd();
+  const form = sel.closest("form"); if (!form || form.dataset.basketWired) return; form.dataset.basketWired = "1";
+  const box = form.querySelector("[data-basket]"), lst = form.querySelector("[data-basket-list]"), btn = form.querySelector("[data-submit-lbl]");
+  const refresh = () => { const n = lst.children.length; const ns = form.querySelectorAll("[name=sids]:checked").length; if (box) box.hidden = !n;
+    const extra = [...new Set([...(form.querySelector("[name=sid]") ? [form.querySelector("[name=sid]").value] : []), ...[...form.querySelectorAll("[name=sids]:checked")].map(x => x.value)])].length;
+    const mn = form.querySelector("[data-more-n]"); if (mn) mn.textContent = ns ? `(zaznaczono ${ns})` : "";
+    if (btn) btn.textContent = n ? `Zadaj wszystko z listy (${n})${extra > 1 ? ` · ${extra} uczniów` : ""}` : extra > 1 ? `Zadaj ${extra} uczniom` : "Zadaj"; };
+  form.addEventListener("change", e => { if (e.target.name === "sids" || e.target.name === "sid") refresh(); });
+  form.addEventListener("click", e => {
+    const rm = e.target.closest("[data-rm-item]"); if (rm) { rm.parentElement.remove(); refresh(); return; }
+    if (!e.target.closest("[data-add-item]")) return;
+    const it = currentItem(new FormData(form)); if (!it) { toast(sel.value === "custom" ? "Wpisz tytuł zadania." : "Wybierz, co dodać."); return; }
+    if ([...lst.querySelectorAll("input[name=item]")].some(x => { const o = JSON.parse(x.value); return o.kind === it.kind && (o.id ? o.id === it.id : o.title === it.title); })) { toast("To już jest na liście."); return; }
+    const chip = document.createElement("span"); chip.className = "chip"; chip.style.cssText = "display:inline-flex;gap:6px;align-items:center";
+    chip.innerHTML = `${esc(it.label)}<input type="hidden" name="item" value="${esc(JSON.stringify(it))}"><button type="button" class="btn sm ghost" data-rm-item aria-label="Usuń z listy" style="padding:0 4px">×</button>`;
+    lst.appendChild(chip);
+    if (it.kind === "custom") { form.querySelector("[name=title]").value = ""; form.querySelector("[name=desc]").value = ""; }
+    refresh(); toast("Dodano do listy");
+  });
+  refresh();
 }
 async function markCustomDone(aid) {
   if (S.preview) { toast("To tylko podgląd – nic nie zapisuję."); throw new Error("Podgląd – bez zapisu."); }
