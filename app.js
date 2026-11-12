@@ -401,7 +401,7 @@ function renderStudent() {
   <section class="panel"><h2>Płatności</h2><div class="stats">${balanceBlock(b)}</div>
   ${b.pays.length ? `<div class="tablewrap"><table><thead><tr><th>Data wpłaty</th><th>Kwota</th></tr></thead><tbody>${b.pays.sort((x, y) => (y.date || "").localeCompare(x.date || "")).map(p => `<tr><td>${esc(fmtDate(p.date))}</td><td>${zl(Number(p.amount) || 0)}</td></tr>`).join("")}</tbody></table></div>` : ""}
   ${bank && bank.account ? `<details><summary class="small" style="cursor:pointer;color:var(--accent);font-weight:600">Dane do przelewu</summary><p class="small" style="margin-top:8px">Odbiorca: ${esc(bank.recipient || "")}<br>Numer konta: <b style="user-select:all">${esc(bank.account)}</b>${title ? `<br>Tytuł: ${esc(title)}` : ""}</p></details>` : ""}</section>`;
-  root.innerHTML = frame(`${installHint()}<div class="head"><div><p class="eyebrow">Twoje konto</p><h1>Cześć, ${esc(S.user.name.split(" ")[0])}!</h1></div></div>${top}${studentResults()}
+  root.innerHTML = frame(`${installHint()}<div class="head"><div><p class="eyebrow">Twoje konto</p><h1>Cześć, ${esc(S.user.name.split(" ")[0])}!</h1></div></div>${top}${studentResults()}${studentMatury()}
   <section class="list"><h2>Do zrobienia</h2>${todo.length ? todo.map(card).join("") : '<p class="empty">Wszystko zrobione. 🎉</p>'}</section>
   <section class="list"><h2>Zrobione</h2>${done.length ? done.map(card).join("") : '<p class="empty">Tu pojawią się Twoje wyniki.</p>'}</section>`);
 }
@@ -630,8 +630,8 @@ function renderMaturzysci() {
   ${plan.profile ? `<p>${esc(plan.profile)}</p>` : ""}
   <div class="stats"><div class="stat"><span class="small muted">Lekcje zrobione</span><b>${doneN}/${plan.lessons.length}</b></div><div class="stat"><span class="small muted">Średnia z testów w aplikacji</span><b>${avg === null ? "–" : avg + "%"}</b></div><div class="stat"><span class="small muted">Materiał do</span><b>${esc(plan.materialEnd || "31 mar")}</b></div></div>
   ${plan.approach ? `<details><summary class="small" style="cursor:pointer;color:var(--accent);font-weight:600">Jak pracujemy z tą osobą</summary><ul class="small">${plan.approach.map(x => `<li>${esc(x)}</li>`).join("")}</ul></details>` : ""}</section>
-  <div class="pills"><button data-act="engView" data-k="plan" aria-pressed="${S.engView !== "testy"}">Plan lekcji</button><button data-act="engView" data-k="testy" aria-pressed="${S.engView === "testy"}">Testy z działów 1–14</button></div>
-  ${S.engView === "testy" ? renderEngTests(s.id) : `<div class="head"><div><h2>Plan lekcji</h2></div><button class="btn sm" data-act="toggleAll">${S.showAll ? "Pokaż od bieżącej" : "Pokaż wszystkie (" + plan.lessons.length + ")"}</button></div>
+  <div class="pills"><button data-act="engView" data-k="plan" aria-pressed="${S.engView !== "testy"}">Plan lekcji</button><button data-act="engView" data-k="testy" aria-pressed="${S.engView === "testy"}">Testy z działów 1–14</button><button data-act="engView" data-k="matury" aria-pressed="${S.engView === "matury"}">Matury próbne</button></div>
+  ${S.engView === "matury" ? `<section class="panel"><p class="small muted">Wynik z aplikacji (część bez słuchania + słuchanie) pokazuje się sam. Jeśli arkusz był na papierze, wpisz łączne punkty.</p></section><h2>Poziom rozszerzony</h2><div class="list">${maturaRows("pr", s.id, (S.data.engProgress[s.id] || {}).topics, "e")}</div><h2 style="margin-top:18px">Poziom podstawowy</h2><div class="list">${maturaRows("pp", s.id, (S.data.engProgress[s.id] || {}).topics, "e")}</div>` : S.engView === "testy" ? renderEngTests(s.id) : `<div class="head"><div><h2>Plan lekcji</h2></div><button class="btn sm" data-act="toggleAll">${S.showAll ? "Pokaż od bieżącej" : "Pokaż wszystkie (" + plan.lessons.length + ")"}</button></div>
   <div class="list">${shown.map(lessonHtml).join("")}</div>`}`;
 }
 const engPills = list => `<div class="pills"><button data-act="sel" data-id="__all" aria-pressed="${S.sel === "__all"}">Przegląd</button>${list.map(x => `<button data-act="sel" data-id="${x.id}" aria-pressed="${x.id === S.sel}">${esc(x.name)}</button>`).join("")}</div>`;
@@ -645,7 +645,8 @@ function renderEngOverview(list) {
   };
   return `<div class="head"><div><p class="eyebrow">Angielski · matura rozszerzona</p><h1>Maturzyści</h1></div></div>${engPills(list)}
   <section class="panel"><p class="small muted">Kliknij imię, żeby wpisać wyniki. Po najechaniu na skrót zobaczysz pełną nazwę działu. Zielone ≥ 70%, żółte 50–69%, czerwone &lt; 50%.</p></section>
-  ${table("v", "Testy ze słownictwa")}${table("w", "Wypracowania")}`;
+  ${table("v", "Testy ze słownictwa")}${table("w", "Wypracowania")}
+  ${maturaTable("pr", list, id => S.data.engProgress[id], "sel")}${maturaTable("pp", list, id => S.data.engProgress[id], "sel")}`;
 }
 const ENG_AREAS = ["Człowiek", "Miejsce zamieszkania", "Edukacja", "Praca", "Życie prywatne", "Żywienie", "Zakupy i usługi", "Podróżowanie i turystyka", "Kultura", "Sport", "Zdrowie", "Nauka i technika", "Świat przyrody", "Życie społeczne"];
 function engStats(sid) {
@@ -681,6 +682,52 @@ function mathStats(sid) {
   const withPct = vals.filter(x => typeof x.pct === "number");
   return { done: vals.length, avg: withPct.length ? Math.round(withPct.reduce((a, x) => a + x.pct, 0) / withPct.length) : null };
 }
+/* ---------- matury próbne: tabele wyników ---------- */
+const MATURA_RE = { mat: /^mat-\d{4}-\d{2}-pp$/, pp: /^ang-pp-\d{4}-\d{2}$/, pr: /^ang-pr-\d{4}-\d{2}$/ };
+const MATURA_NAME = { mat: "Matematyka – matury próbne", pp: "Angielski – matury próbne, poziom podstawowy", pr: "Angielski – matury próbne, poziom rozszerzony" };
+function maturaSheets(kind) {
+  const src = (window.PE_ARKUSZE || []).filter(t => MATURA_RE[kind].test(t.id)).sort((a, b) => a.id.localeCompare(b.id));
+  return src.map((t, i) => { const m = String(t.adminTitle || "").match(/Matura\s+(\S+\s+\d{4})/i);
+    return { id: t.id, n: i + 1, key: (kind === "mat" ? "mp" : kind) + pad(i + 1), when: m ? m[1] : "", listen: kind !== "mat" && (window.PE_ARKUSZE || []).some(x => x.id === t.id + "-s") ? t.id + "-s" : null }; });
+}
+function appResultFor(sid, testId) {
+  let best = null;
+  for (const a of Object.values(S.data.assignments || {})) {
+    if (a.testId !== testId || (a.studentId && a.studentId !== sid) || a.only) continue;
+    const r = S.data.results[a.id]; if (r && typeof r.score === "number" && r.max) { if (!best || String(r.doneAt || r.date || "") > String(best.doneAt || best.date || "")) best = r; }
+  }
+  return best;
+}
+function maturaCell(sid, sh, topics) {
+  const r1 = appResultFor(sid, sh.id), r2 = sh.listen ? appResultFor(sid, sh.listen) : null;
+  if (r1 || r2) { const sc = (r1 ? r1.score : 0) + (r2 ? r2.score : 0), mx = (r1 ? r1.max : 0) + (r2 ? r2.max : 0);
+    return { pct: Math.round(sc / mx * 100), pts: sc, max: mx, app: true, part: sh.listen && !(r1 && r2) ? (r1 ? "bez słuchania" : "tylko słuchanie") : "" }; }
+  const x = (topics || {})[sh.key]; if (x && typeof x.pct === "number") return { pct: x.pct, pts: x.pts, max: x.max, app: false };
+  return null;
+}
+function maturaAvg(cells) { const c = cells.filter(Boolean); return c.length ? Math.round(c.reduce((a, x) => a + x.pct, 0) / c.length) : null; }
+function maturaTable(kind, list, progOf, selAct) {
+  const sh = maturaSheets(kind); if (!sh.length) return "";
+  const rows = list.map(s => { const cells = sh.map(x => maturaCell(s.id, x, (progOf(s.id) || {}).topics)); const av = maturaAvg(cells);
+    return `<tr><td><button class="btn sm ghost" data-act="${selAct}" data-id="${s.id}">${esc(s.name)}</button></td><td>${cells.filter(Boolean).length}/${sh.length}</td><td>${av === null ? "–" : pctChip(av)}</td>${cells.map((c, i) => `<td title="${esc(sh[i].when)}${c ? ` · ${c.pts}/${c.max} pkt${c.part ? " · " + c.part : ""}${c.app ? " · z aplikacji" : " · wpisane"}` : ""}">${c ? pctChip(c.pct) : '<span class="muted">–</span>'}</td>`).join("")}</tr>`; }).join("");
+  return `<section class="panel"><h2>${MATURA_NAME[kind]}</h2><div class="tablewrap"><table class="compact"><thead><tr><th>Uczeń</th><th>Zrobione</th><th>Średnia</th>${sh.map(x => `<th title="${esc(x.when)}">${x.n}<br><span class="small muted" style="font-weight:400">${esc(x.when.replace(/(\S+)\s+20(\d\d)/, (m, a, b) => a.slice(0, 3) + " " + b))}</span></th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div></section>`;
+}
+function maturaRows(kind, sid, topics, attr) {
+  const sh = maturaSheets(kind); const P = attr === "m" ? ["mpts", "mmax"] : ["epts", "emax"];
+  return sh.map(x => { const app = maturaCell(sid, x, {}); const t = (topics || {})[x.key] || {};
+    const dflt = typeof t.max === "number" ? t.max : (attr === "m" ? mathMaxDefault(x.key) : null);
+    return `<div class="row"><span class="num">${x.n}</span><span class="grow"><b>Matura próbna ${x.n}</b><span class="small muted">${esc(x.when)}</span></span>
+    ${app ? `<span class="small muted">w aplikacji: ${app.pts}/${app.max} pkt${app.part ? " (" + app.part + ")" : ""}</span>${pctChip(app.pct)}` : `<span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="number" min="0" step="0.5" inputmode="decimal" data-${P[0]}="${x.key}" value="${typeof t.pts === "number" ? t.pts : ""}" placeholder="pkt" style="width:72px" aria-label="Punkty: matura próbna ${x.n}"><span class="muted">na</span><input type="number" min="1" step="0.5" inputmode="decimal" data-${P[1]}="${x.key}" value="${dflt ?? ""}" placeholder="max" style="width:72px" aria-label="Maksimum: matura próbna ${x.n}"><span class="muted small">pkt</span></span>${pctChip(t.pct)}`}</div>`; }).join("");
+}
+function studentMatury() {
+  const me = S.data.me || {}; const out = [];
+  for (const kind of ["mat", "pp", "pr"]) {
+    const topics = ((kind === "mat" ? S.data.mathP : S.data.engP) || {}).topics || {};
+    const done = maturaSheets(kind).map(x => [x, maturaCell(me.id || S.user.studentId, x, topics)]).filter(([, c]) => c);
+    if (done.length) out.push(`<h3 style="margin:10px 0 4px">${kind === "mat" ? "Matematyka" : kind === "pp" ? "Angielski – poziom podstawowy" : "Angielski – poziom rozszerzony"} <span class="small muted">· średnia ${maturaAvg(done.map(d => d[1]))}%</span></h3><div class="tablewrap"><table><thead><tr><th>Arkusz</th><th>Punkty</th><th>Wynik</th></tr></thead><tbody>${done.map(([x, c]) => `<tr><td>Matura próbna ${x.n}</td><td>${c.pts}/${c.max}</td><td>${pctChip(c.pct)}</td></tr>`).join("")}</tbody></table></div>`);
+  }
+  return out.length ? `<section class="panel"><h2>Matury próbne – Twoje wyniki</h2>${out.join("")}</section>` : "";
+}
 function renderMatematyka() {
   const list = Object.values(S.data.students).filter(s => s.mathMatura).sort((a, b) => a.name.localeCompare(b.name, "pl"));
   const others = Object.values(S.data.students).filter(s => !s.mathMatura).sort((a, b) => a.name.localeCompare(b.name, "pl"));
@@ -690,13 +737,15 @@ function renderMatematyka() {
     const found = MATH_DEFAULT.filter(id => S.data.students[id]).map(id => S.data.students[id].name);
     return head + `<section class="panel"><p>Nie ma jeszcze maturzystów z matematyki.</p>${found.length ? `<div><button class="btn primary" data-act="mathDefaults">Dodaj: ${esc(found.join(", "))}</button></div>` : '<p class="small muted">Najpierw zaimportuj uczniów w Ustawieniach.</p>'}${others.length ? addForm : ""}</section>`;
   }
-  if (!S.selM || (S.selM !== "__all" && !list.find(s => s.id === S.selM))) S.selM = "__all";
-  const pills = `<div class="pills"><button data-act="selM" data-id="__all" aria-pressed="${S.selM === "__all"}">Przegląd</button>${list.map(s => `<button data-act="selM" data-id="${s.id}" aria-pressed="${s.id === S.selM}">${esc(s.name)}</button>`).join("")}</div>`;
+  if (!S.selM || (S.selM !== "__all" && S.selM !== "__mat" && !list.find(s => s.id === S.selM))) S.selM = "__all";
+  if (S.selM === "__mat" && !maturaSheets("mat").length) S.selM = "__all";
+  const pills = `<div class="pills"><button data-act="selM" data-id="__all" aria-pressed="${S.selM === "__all"}">Przegląd działów</button><button data-act="selM" data-id="__mat" aria-pressed="${S.selM === "__mat"}">Matury próbne</button>${list.map(s => `<button data-act="selM" data-id="${s.id}" aria-pressed="${s.id === S.selM}">${esc(s.name)}</button>`).join("")}</div>`;
   if (S.selM === "__all") {
     const rows = list.map(s => { const t = (S.data.mathProgress[s.id] || {}).topics || {}; const st = mathStats(s.id);
       return `<tr><td><button class="btn sm ghost" data-act="selM" data-id="${s.id}">${esc(s.name)}</button></td><td>${st.done}/${MATH_TOPICS.length}</td><td>${st.avg === null ? "–" : pctChip(st.avg)}</td>${MATH_TOPICS.map((_, i) => { const x = t[tkey(i)]; return `<td>${x && x.done ? (typeof x.pct === "number" ? pctChip(x.pct) : '<span class="chip ok">✓</span>') : '<span class="muted">–</span>'}</td>`; }).join("")}</tr>`; }).join("");
     return head + pills + `<section class="panel"><p class="small muted">Kliknij imię, żeby wpisać wyniki. Po najechaniu na skrót zobaczysz pełną nazwę działu. Zielone ≥ 70%, żółte 50–69%, czerwone &lt; 50%.</p><div class="tablewrap"><table class="compact"><thead><tr><th>Uczeń</th><th>Działy</th><th>Średnia</th>${MATH_TOPICS.map((n, i) => `<th title="${i + 1}. ${esc(n)}">${esc(MATH_SHORT[i])}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div></section>` + `<section class="panel">${others.length ? addForm : ""}</section>`;
   }
+  if (S.selM === "__mat") return head + pills + `<section class="panel"><p class="small muted">Wyniki z aplikacji wpisują się same. Arkusz robiony na papierze wpisz u konkretnego ucznia (kliknij imię). Po najechaniu na wynik zobaczysz punkty i datę arkusza. Zielone ≥ 70%, żółte 50–69%, czerwone &lt; 50%.</p></section>` + maturaTable("mat", list, id => S.data.mathProgress[id], "selM");
   const s = S.data.students[S.selM]; const t = (S.data.mathProgress[s.id] || {}).topics || {}; const st = mathStats(s.id);
   const items = MATH_TOPICS.map((n, i) => { const k = tkey(i); const x = t[k] || {};
     return `<div class="row"><span class="num">${i + 1}</span><span class="grow"><b>${esc(n)}</b>${x.date ? `<span class="small muted">wpisane ${new Date(x.date).toLocaleDateString("pl-PL")}</span>` : ""}</span>
@@ -704,7 +753,8 @@ function renderMatematyka() {
     <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="number" min="0" step="0.5" inputmode="decimal" data-mpts="${k}" value="${typeof x.pts === "number" ? x.pts : ""}" placeholder="pkt" style="width:72px" aria-label="Punkty: ${esc(n)}"><span class="muted">na</span><input type="number" min="1" step="0.5" inputmode="decimal" data-mmax="${k}" value="${typeof x.max === "number" ? x.max : (mathMaxDefault(k) ?? "")}" placeholder="max" style="width:72px" aria-label="Maksymalna liczba punktów: ${esc(n)}"><span class="muted small">pkt</span></span>${pctChip(x.pct)}${redoCell("mat", k, n, x)}</div>`; }).join("");
   return head + pills + `<section class="panel"><div class="head"><div><h2>${esc(s.name)}</h2><p class="small muted">${esc(s.klasa || "")}</p></div><button class="btn sm ghost" data-act="mathRemove" data-id="${s.id}">Usuń z maturzystów</button></div>
   <div class="stats"><div class="stat"><span class="small muted">Działy zrobione</span><b>${st.done}/${MATH_TOPICS.length}</b></div><div class="stat"><span class="small muted">Średni wynik</span><b>${st.avg === null ? "–" : st.avg + "%"}</b></div></div>
-  <p class="small muted">Wpisz, ile punktów uczeń zdobył i na ile był test – procent liczy się sam, a dział oznacza się jako zrobiony. Maksymalna liczba punktów podpowiada się z wyników innych uczniów.</p></section><div class="list">${items}</div>`;
+  <p class="small muted">Wpisz, ile punktów uczeń zdobył i na ile był test – procent liczy się sam, a dział oznacza się jako zrobiony. Maksymalna liczba punktów podpowiada się z wyników innych uczniów.</p></section><div class="list">${items}</div>
+  <section class="panel" style="margin-top:18px"><h2>Matury próbne</h2><p class="small muted">Wynik z aplikacji pokazuje się sam. Jeśli arkusz był na papierze, wpisz punkty.</p></section><div class="list">${maturaRows("mat", s.id, t, "m")}</div>`;
 }
 function redoCell(subj, k, name, x, compact) {
   const redo = x.redo ? `<span class="small muted">zadane ponownie ${fmtDate(x.redo.slice(0, 10))}</span>` : "";
