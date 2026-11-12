@@ -549,8 +549,52 @@ function qHtml(q, n, answers, mode) {
 function testBody(t, answers, mode) {
   return groupQuestions(t).map(g => `${g.p ? passageHtml(g.p) : ""}${g.qs.map(n => qHtml(t.questions[n], n, answers, mode)).join("")}`).join("");
 }
+/* ---------------- Fiszki ---------------- */
+function fcShuffle(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+function fcStart(idx, practice) { const v = S.view; v.fc = { queue: fcShuffle(idx), total: idx.length, known: 0, miss: {}, flipped: false, rounds: 1, practice: !!practice, dir: (v.fc && v.fc.dir) || "pl" }; v.mode = "take"; }
+function renderCards() {
+  const v = S.view, t = v.test, Q = t.questions;
+  const head = `<div class="head"><div><button class="btn sm ghost" data-act="back" style="justify-self:start">← Wróć</button><p class="eyebrow">Fiszki · ${esc(t.topic || "")}${t.level ? " · " + esc(t.level) : ""}</p><h1>${esc(t.title)}</h1>${v.who ? `<p class="muted">${esc(v.who)}</p>` : ""}</div>${v.mode === "key" && S.user.role === "admin" && !S.preview ? `<div class="acts"><button class="btn primary" data-act="giveTest" data-id="${esc(t.id)}">Zadaj uczniowi</button></div>` : ""}</div>`;
+  const list = ix => `<div class="tablewrap"><table><thead><tr><th>Angielski</th><th>Polski</th></tr></thead><tbody>${ix.map(i => `<tr><td><b>${esc(Q[i].f)}</b></td><td>${esc(Q[i].b)}</td></tr>`).join("")}</tbody></table></div>`;
+  let body = "";
+  if (v.mode === "key") body = `<div class="notice small">Podgląd zestawu: ${Q.length} fiszek. Uczeń przegląda je po jednej, odwraca i zaznacza „Umiem” albo „Jeszcze nie”. Fiszki, których nie umie, wracają na koniec, aż przerobi wszystkie.</div><section class="panel">${list(Q.map((_, i) => i))}</section>`;
+  else if (v.mode === "result" && !v.fc) {
+    const r = v.result || {}; const hard = r.hard || [];
+    body = `<div class="scorecard"><span class="score">${r.score}/${r.max}</span><div><b>${pct(r.score, r.max)}% za pierwszym razem</b><p class="small muted">Zestaw przerobiony do końca${r.rounds ? ` · ${r.rounds} ${r.rounds === 1 ? "runda" : r.rounds < 5 ? "rundy" : "rund"}` : ""}. ${hard.length ? `Trudne słówka: ${hard.length}.` : "Wszystkie słówka umiane od razu!"}</p></div></div>
+    ${S.user.role !== "admin" || S.preview ? `<div class="acts" style="margin:14px 0">${hard.length ? `<button class="btn primary" data-act="fcAgain" data-k="hard">Powtórz trudne (${hard.length})</button>` : ""}<button class="btn" data-act="fcAgain" data-k="all">Przejdź cały zestaw jeszcze raz</button></div>` : ""}
+    ${hard.length ? `<section class="panel"><h2>Trudne słówka</h2>${list(hard)}</section>` : ""}`;
+  } else {
+    const f = v.fc; if (!f.queue.length) { body = ""; }
+    else {
+      const q = Q[f.queue[0]]; const front = f.dir === "pl" ? q.b : q.f, back = f.dir === "pl" ? q.f : q.b;
+      body = `<div class="fcbar"><span class="muted small">${f.practice ? "Powtórka (wynik się nie zapisuje) · " : ""}Umiem: <b>${f.known}/${f.total}</b> · zostało ${f.queue.length}</span><span class="pills" style="margin:0"><button data-act="fcDir" data-k="pl" aria-pressed="${f.dir === "pl"}">PL → EN</button><button data-act="fcDir" data-k="en" aria-pressed="${f.dir === "en"}">EN → PL</button></span></div>
+      <div class="fcprog"><span style="width:${Math.round(f.known / f.total * 100)}%"></span></div>
+      <button class="fcard${f.flipped ? " on" : ""}" data-act="fcFlip" aria-label="Odwróć fiszkę"><span class="fcside">${f.flipped ? "" : `<span class="small muted">${f.dir === "pl" ? "po angielsku?" : "po polsku?"}</span>`}<b>${esc(front)}</b>${f.flipped ? `<span class="fcback">${esc(back)}</span>` : `<span class="small muted">kliknij, żeby odwrócić</span>`}</span></button>
+      <div class="fcbtns">${f.flipped ? `<button class="btn" data-act="fcNo">✗ Jeszcze nie</button><button class="btn primary" data-act="fcYes">✓ Umiem</button>` : `<button class="btn primary" data-act="fcFlip">Pokaż odpowiedź</button>`}</div>`;
+    }
+  }
+  root.innerHTML = frame(`${head}${body}`);
+}
+async function fcAnswer(ok) {
+  const v = S.view, f = v.fc; const i = f.queue.shift();
+  if (ok) f.known++; else { f.miss[i] = (f.miss[i] || 0) + 1; f.queue.push(i); }
+  f.flipped = false;
+  if (!f.queue.length) {
+    const hard = Object.keys(f.miss).map(Number).sort((a, b) => a - b), rounds = 1 + Math.max(0, ...Object.values(f.miss));
+    if (f.practice) toast("Powtórka skończona!");
+    else {
+      const res = { assignmentId: v.assignment ? v.assignment.id : "", studentId: S.user.studentId, testId: v.test.id, fc: true, answers: {}, hard, rounds, score: f.total - hard.length, max: f.total, closedScore: f.total - hard.length, closedMax: f.total, submittedAt: new Date().toISOString() };
+      if (v.assignment && !S.preview) { try { await B.set("results", v.assignment.id, res); S.data.results[v.assignment.id] = res; } catch (e) { toast(errMsg(e)); } }
+      else toast("To tylko podgląd – wynik się nie zapisze.");
+      v.result = res;
+    }
+    v.fc = null; v.mode = v.result ? "result" : "key";
+  }
+  renderCards();
+}
 function renderTest() {
   const v = S.view; const t = v.test;
+  if (t.kind === "fiszki") { if (v.mode === "take" && !v.fc) fcStart(t.questions.map((_, i) => i)); return renderCards(); }
   const closedQ = t.questions.map((q, n) => [q, n]).filter(([q]) => q.type !== "open");
   const filled = (q, a) => a !== undefined && a !== "" && !(q.type === "multi" && !(a || []).length);
   const total = closedQ.length; const answered = closedQ.filter(([q, n]) => filled(q, v.answers[n])).length;
@@ -596,7 +640,7 @@ function renderMaturzysci() {
   if (!S.sel || !S.data.plans[S.sel]) S.sel = list[0].id;
   const s = S.data.students[S.sel], plan = S.data.plans[S.sel], st = S.data.planState[S.sel] || {};
   const doneN = plan.lessons.filter(l => (st.done || {})[l.n]).length;
-  const res = Object.values(S.data.results).filter(r => r.studentId === s.id && typeof r.score === "number");
+  const res = Object.values(S.data.results).filter(r => r.studentId === s.id && typeof r.score === "number" && !r.fc);
   const avg = res.length ? Math.round(res.reduce((a, r) => a + pct(r.score, r.max), 0) / res.length) : null;
   const ni = nextIndex(plan, st);
   const shown = S.showAll ? plan.lessons.map((l, i) => [l, i]) : plan.lessons.map((l, i) => [l, i]).filter(([l, i]) => i >= Math.max(0, ni) - 1);
@@ -864,7 +908,7 @@ function applyFilter(key) {
   root.querySelectorAll(`[data-s-${key}]`).forEach(el => { total++; const ok = words.every(w => el.getAttribute(`data-s-${key}`).includes(w)); el.hidden = !ok; if (ok) shown++; });
   const info = root.querySelector(`#qn-${key}`); if (info) info.textContent = words.length ? (shown ? `Znaleziono: ${shown} z ${total}` : "Nic nie znaleziono – spróbuj innego słowa.") : "";
 }
-const testText = t => norm([t.title, t.topic, t.level, (t.passages || []).map(p => p.title + " " + p.text).join(" "), (t.questions || []).map(q => q.t + " " + (q.o || []).join(" ")).join(" ")].join(" "));
+const testText = t => norm([t.title, t.topic, t.level, (t.passages || []).map(p => p.title + " " + p.text).join(" "), (t.questions || []).map(q => (q.t || "") + " " + (q.f || "") + " " + (q.b || "") + " " + (q.o || []).join(" ")).join(" ")].join(" "));
 const matText = m => norm([m.title, m.topic, (MAT_CATS.find(c => c[0] === m.category) || ["", ""])[1], m.body, m.key].join(" "));
 
 
@@ -912,6 +956,7 @@ function testGroup(t) {
   const L = t.level || "", title = t.title || "";
   const subj = t.subject || (CEFR.includes(L) || /angiel|czytanka/i.test(title) ? "ang" : /matem/i.test(title) ? "mat" : "");
   let k, lab, r;
+  if (t.kind === "fiszki") { const lv = { PP: "podstawa", PR: "rozszerzenie" }[L] || L; return { key: subj + "|F" + L, label: (SUBJ_UP[subj] || "Inne") + " · fiszki – " + lv, rank: ({ mat: 0, ang: 100 }[subj] ?? 200) + 40 + (L === "PR" ? 1 : 0) }; }
   if (L === "SP") { const m = title.match(/(\d)\s*klas/i) || title.match(/klas[aiey]?\s*(\d)/i); if (m) { k = "kl" + m[1]; lab = "klasa " + m[1]; r = Number(m[1]); } else { k = "SP"; lab = "szkoła podstawowa"; r = 9; } }
   else if (subj === "mat" && (L === "PP" || L === "PR") && !(/^matura\b|arkusz/i.test(title) || /^matura\b/i.test(t.adminTitle || "") || /^mat-\d{4}-/.test(t.id || ""))) { k = "LO"; lab = "liceum"; r = 9.5; }
   else if (L === "PP") { k = "PP"; lab = "matura podstawowa"; r = 10; }
@@ -925,7 +970,7 @@ function renderTesty() {
   const groups = {}; ts.forEach(t => { const g = testGroup(t); (groups[g.key] = groups[g.key] || { ...g, list: [] }).list.push(t); });
   const gl = Object.values(groups).sort((a, b) => a.rank - b.rank);
   if (S.tGrp && !groups[S.tGrp]) S.tGrp = "";
-  const row = t => `<div class="row" data-s-testy="${esc(testText(t))}"><span class="grow"><b>${esc(t.title)}</b><span class="small muted">${esc(t.topic || "")} · ${t.questions.length} pytań${t.passages && t.passages.length ? " · z tekstem" : ""}</span></span><span class="chip acc">${esc(t.level || "")}</span><button class="btn sm" data-act="previewTest" data-id="${t.id}">Podgląd</button><button class="btn sm primary" data-act="giveTest" data-id="${t.id}">Zadaj</button></div>`;
+  const row = t => `<div class="row" data-s-testy="${esc(testText(t))}"><span class="grow"><b>${esc(t.title)}</b><span class="small muted">${esc(t.topic || "")} · ${t.kind === "fiszki" ? t.questions.length + " fiszek" : t.questions.length + " pytań"}${t.passages && t.passages.length ? " · z tekstem" : ""}</span></span><span class="chip acc">${esc(t.level || "")}</span><button class="btn sm" data-act="previewTest" data-id="${t.id}">Podgląd</button><button class="btn sm primary" data-act="giveTest" data-id="${t.id}">Zadaj</button></div>`;
   const shown = S.tGrp ? [groups[S.tGrp]] : gl;
   return `<div class="head"><div><p class="eyebrow">Czytanki i testy</p><h1>Bank testów</h1></div></div>
   <div class="pills"><button data-act="tGrp" data-k="" aria-pressed="${!S.tGrp}">Wszystkie (${ts.length})</button>${gl.map(g => `<button data-act="tGrp" data-k="${esc(g.key)}" aria-pressed="${S.tGrp === g.key}">${esc(g.label)} (${g.list.length})</button>`).join("")}</div>
@@ -1533,6 +1578,11 @@ root.addEventListener("click", async e => {
     else if (act === "phDel") { const n = el.dataset.n; S.view.photos[n].splice(Number(el.dataset.i), 1); const y = window.scrollY; renderTest(); window.scrollTo(0, y); }
     else if (act === "ans") { if (S.view.mode !== "take") return; const n = el.dataset.n, val = JSON.parse(el.dataset.v), q = S.view.test.questions[n];
       if (q.type === "multi") { let a = (S.view.answers[n] || []).slice(); a = a.includes(val) ? a.filter(x => x !== val) : [...a, val]; if (a.length > (q.k || q.c.length)) a.shift(); S.view.answers[n] = a.sort(); } else S.view.answers[n] = val; try { sessionStorage.setItem("pe_draft_" + S.view.assignment.id, JSON.stringify(S.view.answers)); } catch (err) { } const y = window.scrollY; renderTest(); window.scrollTo(0, y); }
+    else if (act === "fcFlip") { S.view.fc.flipped = !S.view.fc.flipped; renderCards(); }
+    else if (act === "fcYes") await fcAnswer(true);
+    else if (act === "fcNo") await fcAnswer(false);
+    else if (act === "fcDir") { S.view.fc.dir = el.dataset.k; S.view.fc.flipped = false; renderCards(); }
+    else if (act === "fcAgain") { const r = S.view.result || {}; const ix = el.dataset.k === "hard" && (r.hard || []).length ? r.hard : S.view.test.questions.map((_, i) => i); fcStart(ix, true); renderCards(); window.scrollTo(0, 0); }
     else if (act === "submitTest") await submitTest();
     else if (act === "back") { S.view = null; render(); }
     else if (act === "previewTest") { const t = S.data.tests[el.dataset.id]; S.view = { type: "test", mode: "key", test: { id: el.dataset.id, ...t }, answers: Object.fromEntries(t.questions.map((q, n) => [n, q.c])) }; render(); window.scrollTo(0, 0); }

@@ -138,6 +138,13 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--surface)}
 .expl{background:var(--accent-soft);border-radius:8px;padding:10px 12px;font-size:14px;display:grid;gap:4px}
 .expl b{color:var(--accent)}
 .verdict{font-weight:700;font-size:13px} .verdict.ok{color:var(--ok)} .verdict.bad{color:var(--bad)}
+.fcbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0 8px}
+.fcprog{height:6px;border-radius:99px;background:var(--surface);overflow:hidden;margin-bottom:14px}.fcprog span{display:block;height:100%;background:var(--accent);transition:width .3s}
+.fcard{display:flex;align-items:center;justify-content:center;width:100%;min-height:240px;padding:28px;border-radius:var(--r);border:1px solid var(--line);background:var(--bg);cursor:pointer;font:inherit;color:inherit;text-align:center;box-shadow:0 6px 24px rgba(40,20,80,.06);transition:transform .15s}
+.fcard:hover{transform:translateY(-2px)}.fcard.on{background:var(--accent-soft)}
+.fcside{display:grid;gap:12px;justify-items:center}.fcside b{font-size:clamp(22px,4vw,32px);line-height:1.25}
+.fcback{font-size:clamp(18px,3vw,24px);color:var(--accent);font-weight:600}
+.fcbtns{display:flex;gap:10px;justify-content:center;margin:16px 0;flex-wrap:wrap}.fcbtns .btn{min-width:150px}
 .scorecard{display:flex;gap:16px;align-items:center;flex-wrap:wrap;background:var(--surface);border-radius:var(--r);padding:16px 18px}
 .score{font-size:42px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
 .submitbar{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding-block:12px calc(12px + env(safe-area-inset-bottom,0px));display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
@@ -227,8 +234,8 @@ legend{font-weight:700;font-size:13px;padding:0 4px}
 <body>
 <div id="app"><div class="wrap"><p class="empty" style="padding-top:40px">Ładowanie…</p></div></div>
 <script src="config.js"></script>
-<script src="seed.js?v=1794504896"></script>
-<script src="arkusze.js?v=1794504896"></script>
-<script type="module" src="app.js?v=1794504896"></script>
+<script src="seed.js?v=1794505907"></script>
+<script src="arkusze.js?v=1794505907"></script>
+<script type="module" src="app.js?v=1794505907"></script>
 </body>
 </html>
