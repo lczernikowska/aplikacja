@@ -432,11 +432,16 @@ function previewAs(sid) {
   undoBtn(); render(); window.scrollTo(0, 0);
 }
 function endPreview() { const p = S.preview; if (!p) return; S.user = p.user; S.data = p.data; S.tab = p.tab; S.view = p.view; S.preview = null; undoBtn(); render(); }
+const ARCH_DAYS = 14;
+function isArch(a) {
+  if (a.archived === true) return true; if (a.archived === false) return false;
+  const r = S.data.results[a.id]; const d = r && (r.submittedAt || r.doneAt); return !!d && Date.now() - new Date(d).getTime() > ARCH_DAYS * 864e5;
+}
 function renderStudent() {
   if (!S.user.studentId) { root.innerHTML = frame(`<div class="notice bad">Twoje konto nie jest jeszcze przypisane do ucznia. Napisz do swojej korepetytorki.</div>`); return; }
   if (S.view && S.view.type === "test") return renderTest();
   const as = Object.values(S.data.assignments).sort((a, b) => (a.due || "").localeCompare(b.due || ""));
-  const arch = as.filter(a => a.archived).reverse(); const live = as.filter(a => !a.archived);
+  const arch = as.filter(isArch).reverse(); const live = as.filter(a => !isArch(a));
   const todo = live.filter(a => !resultFor(a.id)), done = live.filter(a => resultFor(a.id)).reverse();
   const card = a => { const t = S.data.tests[a.testId]; const r = resultFor(a.id); const late = !r && a.due && a.due < today();
     if (ownKind(a)) return customCard(a, r, late);
@@ -989,14 +994,14 @@ function renderZadania() {
   const st = Object.values(S.data.students).sort((a, b) => a.name.localeCompare(b.name, "pl"));
   const ts = Object.values(S.data.tests).sort((a, b) => a.title.localeCompare(b.title, "pl"));
   const allA = Object.values(S.data.assignments).sort((a, b) => (b.due || "").localeCompare(a.due || ""));
-  const nArchA = allA.filter(a => a.archived).length; if (!nArchA) S.showArchZ = false;
-  const as = allA.filter(a => !!a.archived === !!S.showArchZ);
+  const nArchA = allA.filter(isArch).length; if (!nArchA) S.showArchZ = false;
+  const as = allA.filter(a => isArch(a) === !!S.showArchZ);
   return `<div class="head"><div><p class="eyebrow">Testy i zadania własne</p><h1>Zadania domowe</h1></div></div>
   ${S.showArchZ ? "" : `<form class="panel" id="assignForm" style="display:grid;gap:12px"><h2>Zadaj zadanie</h2>${assignFormHtml(null)}</form>`}
-  <section class="panel"><div class="row" style="padding:0;border:0;background:none"><h2 class="grow" style="margin:0">${S.showArchZ ? "Archiwum zadań" : "Wszystkie zadania"}</h2>${nArchA || S.showArchZ ? `<button class="btn sm ghost" data-act="toggleArchZ">${S.showArchZ ? "← Aktualne zadania" : `Archiwum (${nArchA})`}</button>` : ""}</div>${as.length ? `<div class="tablewrap"><table><thead><tr><th>Uczeń</th><th>Zadanie</th><th>Termin</th><th>Wynik</th><th></th></tr></thead><tbody>
+  <section class="panel"><div class="row" style="padding:0;border:0;background:none"><h2 class="grow" style="margin:0">${S.showArchZ ? "Archiwum zadań" : "Wszystkie zadania"}<span class="small muted" style="display:block;font-weight:400">Zrobione zadania same przechodzą do archiwum po ${ARCH_DAYS} dniach – u Ciebie i u ucznia.</span></h2>${nArchA || S.showArchZ ? `<button class="btn sm ghost" data-act="toggleArchZ">${S.showArchZ ? "← Aktualne zadania" : `Archiwum (${nArchA})`}</button>` : ""}</div>${as.length ? `<div class="tablewrap"><table><thead><tr><th>Uczeń</th><th>Zadanie</th><th>Termin</th><th>Wynik</th><th></th></tr></thead><tbody>
   ${as.map(a => { const r = S.data.results[a.id]; const s = S.data.students[a.studentId]; const cu = ownKind(a);
     return `<tr class="${r && !cu ? "click" : ""}" ${r && !cu ? `data-act="viewResult" data-id="${a.id}"` : ""}><td>${esc(s ? s.name : "?")}</td><td style="white-space:normal">${esc(taskTitle(a))}${cu ? ` <span class="chip">${a.kind === "material" ? "materiał" : "własne"}</span>` : ""}</td><td>${fmtDate(a.due)}</td><td>${cu ? (r ? `<span class="chip ok" title="${r.by === "teacher" ? "odhaczone przez Ciebie" : "odhaczone przez ucznia"}">zrobione${r.by === "student" ? " (uczeń)" : ""}</span> <button class="btn sm ghost" data-act="undoneCustom" data-id="${a.id}" title="Cofnij odhaczenie">↺ nie zrobione</button>` : `${a.due && a.due < today() ? '<span class="chip bad">po terminie</span> ' : ""}<button class="btn sm" data-act="doneCustom" data-id="${a.id}">Odhacz</button>`) : r ? `<span class="chip ${pct(r.score, r.max) >= 70 ? "ok" : pct(r.score, r.max) >= 50 ? "warn" : "bad"}">${r.score}/${r.max} · ${pct(r.score, r.max)}%</span>` : a.due && a.due < today() ? '<span class="chip bad">po terminie</span>' : '<span class="chip">czeka</span>'}</td>
-    <td style="white-space:nowrap"><button class="btn sm ghost" data-act="archAssign" data-id="${a.id}" data-v="${a.archived ? 0 : 1}">${a.archived ? "↩ przywróć" : "do archiwum"}</button>${r ? "" : `<button class="btn sm ghost" data-act="delAssign" data-id="${a.id}">usuń</button>`}</td></tr>`; }).join("")}</tbody></table></div>` : `<p class="empty">${S.showArchZ ? "Archiwum jest puste." : "Nic jeszcze nie zadano."}</p>`}</section>`;
+    <td style="white-space:nowrap"><button class="btn sm ghost" data-act="archAssign" data-id="${a.id}" data-v="${isArch(a) ? 0 : 1}">${isArch(a) ? "↩ przywróć" : "do archiwum"}</button>${r ? "" : `<button class="btn sm ghost" data-act="delAssign" data-id="${a.id}">usuń</button>`}</td></tr>`; }).join("")}</tbody></table></div>` : `<p class="empty">${S.showArchZ ? "Archiwum jest puste." : "Nic jeszcze nie zadano."}</p>`}</section>`;
 }
 
 /* ---------------- Laura: bank testów ---------------- */
@@ -1652,7 +1657,7 @@ root.addEventListener("click", async e => {
       for (let k = L.length - 1; k >= i; k--) { const s2 = k + 1 < L.length ? slots[k + 1] : { date: iso(last), time: L[k].time }; L[k].date = s2.date; L[k].time = s2.time; }
       await B.set("plans", S.sel, plan); toast("Przesunięto"); render();
     }
-    else if (act === "archAssign") { const a = S.data.assignments[el.dataset.id]; if (!a) return; const { id: aid, ...rest } = a; const v = el.dataset.v === "1"; if (v) rest.archived = true; else delete rest.archived; await putDoc("assignments", aid, rest); render(); toast(v ? "Przeniesiono do archiwum" : "Przywrócono z archiwum"); }
+    else if (act === "archAssign") { const a = S.data.assignments[el.dataset.id]; if (!a) return; const { id: aid, ...rest } = a; const v = el.dataset.v === "1"; rest.archived = v; await putDoc("assignments", aid, rest); render(); toast(v ? "Przeniesiono do archiwum" : "Przywrócono z archiwum"); }
     else if (act === "delAssign") { if (!(await ask("Usunąć to zadanie?", "Usuń"))) return; await B.del("assignments", el.dataset.id); delete S.data.assignments[el.dataset.id]; render(); }
     else if (act === "makeLogin") loginModal(S.data.students[el.dataset.id]);
     else if (act === "seed") { if (!S.busy) await seedAll(); }
