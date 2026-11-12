@@ -436,7 +436,8 @@ function renderStudent() {
   if (!S.user.studentId) { root.innerHTML = frame(`<div class="notice bad">Twoje konto nie jest jeszcze przypisane do ucznia. Napisz do swojej korepetytorki.</div>`); return; }
   if (S.view && S.view.type === "test") return renderTest();
   const as = Object.values(S.data.assignments).sort((a, b) => (a.due || "").localeCompare(b.due || ""));
-  const todo = as.filter(a => !resultFor(a.id)), done = as.filter(a => resultFor(a.id)).reverse();
+  const arch = as.filter(a => a.archived).reverse(); const live = as.filter(a => !a.archived);
+  const todo = live.filter(a => !resultFor(a.id)), done = live.filter(a => resultFor(a.id)).reverse();
   const card = a => { const t = S.data.tests[a.testId]; const r = resultFor(a.id); const late = !r && a.due && a.due < today();
     if (ownKind(a)) return customCard(a, r, late);
     return `<button class="row" data-act="openTest" data-id="${a.id}"><span class="grow"><b>${a.only ? "Poprawa: " : ""}${esc(t ? t.title : "Test")}${a.only ? ` <span class="chip">${a.only.length} ${plural(a.only.length, "zadanie", "zadania", "zadań")}</span>` : ""}</b><span class="small muted">${t && t.topic ? esc(t.topic) + " · " : ""}${a.due ? "termin: " + fmtDate(a.due) : ""}</span></span>
@@ -450,7 +451,8 @@ function renderStudent() {
   ${bank && bank.account ? `<details><summary class="small" style="cursor:pointer;color:var(--accent);font-weight:600">Dane do przelewu</summary><p class="small" style="margin-top:8px">Odbiorca: ${esc(bank.recipient || "")}<br>Numer konta: <b style="user-select:all">${esc(bank.account)}</b>${title ? `<br>Tytuł: ${esc(title)}` : ""}</p></details>` : ""}</section>`;
   root.innerHTML = frame(`${installHint()}<div class="head"><div><p class="eyebrow">Twoje konto</p><h1>Cześć, ${esc(S.user.name.split(" ")[0])}!</h1></div></div>${top}${studentResults()}${studentMatury()}
   <section class="list"><h2>Do zrobienia</h2>${todo.length ? todo.map(card).join("") : '<p class="empty">Wszystko zrobione. 🎉</p>'}</section>
-  <section class="list"><h2>Zrobione</h2>${done.length ? done.map(card).join("") : '<p class="empty">Tu pojawią się Twoje wyniki.</p>'}</section>`);
+  <section class="list"><h2>Zrobione</h2>${done.length ? done.map(card).join("") : '<p class="empty">Tu pojawią się Twoje wyniki.</p>'}</section>
+  ${arch.length ? `<details class="list" style="margin-top:8px"><summary style="cursor:pointer"><h2 style="display:inline">Archiwum (${arch.length})</h2></summary><div class="list" style="margin-top:10px">${arch.map(card).join("")}</div></details>` : ""}`);
 }
 
 /* ---------------- test (rozwiązywanie i przegląd) ---------------- */
