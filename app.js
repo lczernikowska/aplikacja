@@ -1013,6 +1013,7 @@ function testGroup(t) {
   if (t.kind === "fiszki") { const lv = { PP: "podstawa", PR: "rozszerzenie" }[L] || L; return { key: subj + "|F" + L, label: (SUBJ_UP[subj] || "Inne") + " · fiszki – " + lv, rank: ({ mat: 0, ang: 100 }[subj] ?? 200) + 40 + (L === "PR" ? 1 : 0) }; }
   if (L === "SP") { const m = title.match(/(\d)\s*klas/i) || title.match(/klas[aiey]?\s*(\d)/i); if (m) { k = "kl" + m[1]; lab = "klasa " + m[1]; r = Number(m[1]); } else { k = "SP"; lab = "szkoła podstawowa"; r = 9; } }
   else if (subj === "mat" && (L === "PP" || L === "PR") && !(/^matura\b|arkusz/i.test(title) || /^matura\b/i.test(t.adminTitle || "") || /^mat-\d{4}-/.test(t.id || ""))) { k = "LO"; lab = "liceum"; r = 9.5; }
+  else if (L === "E8") { k = "E8"; lab = "egzamin ósmoklasisty"; r = 9.2; }
   else if (L === "PP") { k = "PP"; lab = "matura podstawowa"; r = 10; }
   else if (L === "PR") { k = "PR"; lab = "matura rozszerzona"; r = 11; }
   else if (CEFR.includes(L)) { k = L; lab = "poziom " + L; r = 12 + CEFR.indexOf(L); }
