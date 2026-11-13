@@ -236,10 +236,16 @@ function studentResults() {
   }
   return out;
 }
+function dueChip(a) {
+  if (!a.due) return '<span class="chip">bez terminu</span>';
+  const d = Math.round((new Date(a.due + "T00:00:00") - new Date(today() + "T00:00:00")) / 864e5);
+  const txt = d < 0 ? `po terminie (${fmtDate(a.due)})` : d === 0 ? "termin: dziś!" : d === 1 ? "termin: jutro" : `termin: ${fmtDate(a.due)}${d <= 7 ? ` · za ${d} dni` : ""}`;
+  return `<span class="chip ${d < 0 ? "bad" : d <= 1 ? "warn" : "acc"}" style="white-space:nowrap;font-weight:700">${txt}</span>`;
+}
 function customCard(a, r, late) {
   const pdf = a.kind === "material" ? `<button class="btn sm" data-act="stuOpenMat" data-id="${a.id}">Otwórz</button><button class="btn sm" data-act="stuPdf" data-id="${a.id}">PDF</button>` : "";
-  return `<div class="row" style="align-items:flex-start"><span class="grow"><b>${esc(a.title || "Zadanie")}</b>${a.desc ? `<span class="small" style="white-space:pre-wrap;display:block;margin-top:4px">${esc(a.desc)}</span>` : ""}<span class="small muted">${a.due ? "termin: " + fmtDate(a.due) : ""}</span></span>
-  ${pdf}${r ? '<span class="chip ok">zrobione</span>' : `${late ? '<span class="chip bad">po terminie</span>' : '<span class="chip mus">do zrobienia</span>'}<button class="btn sm ghost" data-act="doneCustom" data-id="${a.id}" style="white-space:nowrap">☐ Oznacz jako zrobione</button>`}</div>`;
+  return `<div class="row" style="align-items:flex-start"><span class="grow"><b>${esc(a.title || "Zadanie")}</b>${a.desc ? `<span class="small" style="white-space:pre-wrap;display:block;margin-top:4px">${esc(a.desc)}</span>` : ""}${r && a.due ? `<span class="small muted">termin: ${fmtDate(a.due)}</span>` : ""}</span>
+  ${pdf}${r ? '<span class="chip ok">zrobione</span>' : `${dueChip(a)}<button class="btn sm ghost" data-act="doneCustom" data-id="${a.id}" style="white-space:nowrap">☐ Oznacz jako zrobione</button>`}</div>`;
 }
 const ownKind = a => a.kind === "custom" || a.kind === "material";
 const kindLabel = a => a.kind === "custom" ? "zadanie własne" : a.kind === "material" ? (a.atLesson ? "materiał · dany na lekcji" : "materiał (PDF)") : "test";
@@ -442,11 +448,11 @@ function renderStudent() {
   if (S.view && S.view.type === "test") return renderTest();
   const as = Object.values(S.data.assignments).sort((a, b) => (a.due || "").localeCompare(b.due || ""));
   const arch = as.filter(isArch).reverse(); const live = as.filter(a => !isArch(a));
-  const todo = live.filter(a => !resultFor(a.id)), done = live.filter(a => resultFor(a.id)).reverse();
+  const todo = live.filter(a => !resultFor(a.id)).sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999")), done = live.filter(a => resultFor(a.id)).reverse();
   const card = a => { const t = S.data.tests[a.testId]; const r = resultFor(a.id); const late = !r && a.due && a.due < today();
     if (ownKind(a)) return customCard(a, r, late);
-    return `<button class="row" data-act="openTest" data-id="${a.id}"><span class="grow"><b>${a.only ? "Poprawa: " : ""}${esc(t ? t.title : "Test")}${a.only ? ` <span class="chip">${a.only.length} ${plural(a.only.length, "zadanie", "zadania", "zadań")}</span>` : ""}</b><span class="small muted">${t && t.topic ? esc(t.topic) + " · " : ""}${a.due ? "termin: " + fmtDate(a.due) : ""}</span></span>
-    ${r ? `<span class="chip ${pct(r.score, r.max) >= 70 ? "ok" : pct(r.score, r.max) >= 50 ? "warn" : "bad"}">${r.score}/${r.max} · ${pct(r.score, r.max)}%</span>` : late ? '<span class="chip bad">po terminie</span>' : '<span class="chip mus">do zrobienia</span>'}</button>`; };
+    return `<button class="row" data-act="openTest" data-id="${a.id}"><span class="grow"><b>${a.only ? "Poprawa: " : ""}${esc(t ? t.title : "Test")}${a.only ? ` <span class="chip">${a.only.length} ${plural(a.only.length, "zadanie", "zadania", "zadań")}</span>` : ""}</b><span class="small muted">${t && t.topic ? esc(t.topic) : ""}${r && a.due ? (t && t.topic ? " · " : "") + "termin: " + fmtDate(a.due) : ""}</span></span>
+    ${r ? `<span class="chip ${pct(r.score, r.max) >= 70 ? "ok" : pct(r.score, r.max) >= 50 ? "warn" : "bad"}">${r.score}/${r.max} · ${pct(r.score, r.max)}%</span>` : dueChip(a)}</button>`; };
   const nx = nextLessons(S.data.lessons || [], 3); const b = balanceOf(S.data.lessons || [], S.data.payments || []);
   const bank = S.data.settings && S.data.settings.bank; const month = new Date().toLocaleDateString("pl-PL", { month: "long", year: "numeric" });
   const title = S.data.settings && S.data.settings.titleTpl ? S.data.settings.titleTpl.replace("{imie}", S.user.name).replace("{miesiac}", month) : "";
