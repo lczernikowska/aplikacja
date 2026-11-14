@@ -1379,7 +1379,14 @@ function studentModal(s) {
     wireKind(ov);
     const fa = ov.querySelector("#stAssign"); if (fa) fa.addEventListener("submit", async e => { e.preventDefault(); try { if (await submitAssign(new FormData(e.target))) draw(); } catch (err) { toast(errMsg(err)); } });
   };
-  ov.addEventListener("change", async e => { const d = e.target.closest("[data-mdue]"); if (!d) return; try { await patchDoc("assignments", d.dataset.mdue, { due: d.value }); toast(d.value ? "Termin zmieniony: " + fmtDate(d.value) : "Usunięto termin"); draw(); } catch (err) { toast(errMsg(err)); } });
+  const saveDue = async (d, allowEmpty) => {
+    const a = S.data.assignments[d.dataset.mdue] || {}; const v = d.value;
+    if (v ? !(/^(20\d\d)-\d\d-\d\d$/.test(v)) : !allowEmpty) return;
+    if (v === (a.due || "")) { if (allowEmpty && d.dataset.saved) draw(); return; }
+    try { await patchDoc("assignments", d.dataset.mdue, { due: v }); toast(v ? "Termin zmieniony: " + fmtDate(v) : "Usunięto termin"); if (document.activeElement !== d) draw(); else d.dataset.saved = "1"; } catch (err) { toast(errMsg(err)); }
+  };
+  ov.addEventListener("change", e => { const d = e.target.closest("[data-mdue]"); if (d) saveDue(d, false); });
+  ov.addEventListener("focusout", e => { const d = e.target.closest("[data-mdue]"); if (d) saveDue(d, true); });
   ov.addEventListener("click", async e => {
     if (e.target === ov || e.target.closest("[data-x]")) { ov.remove(); render(); return; }
     const sb = e.target.closest("[data-msec]"); if (sb) { S.stSec = sb.dataset.msec; draw(); return; }
