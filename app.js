@@ -1360,7 +1360,7 @@ function studentModal(s) {
     const up = ls.filter(l => l.date >= t && l.status === "planned").slice(0, 5), past = ls.filter(l => l.date < t || l.status !== "planned" && l.date <= t).reverse().slice(0, 12);
     const P = Object.values(S.data.payments).filter(p => p.studentId === s.id).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     const b = balFor(s.id);
-    const as = Object.values(S.data.assignments).filter(a => a.studentId === s.id).sort((a, b) => (b.due || "").localeCompare(a.due || ""));
+    const as = Object.values(S.data.assignments).filter(a => a.studentId === s.id).sort((a, b) => { const da = !!S.data.results[a.id], db = !!S.data.results[b.id]; if (da !== db) return da ? 1 : -1; return da ? (b.due || "").localeCompare(a.due || "") : (a.due || "9999").localeCompare(b.due || "9999"); });
     const sec = S.stSec || "zad";
     const tabsH = [["zad", "Zadania"], ["lek", "Lekcje"], ["wpl", "Płatności"], ["dane", "Dane"]].map(([k, l]) => `<button type="button" data-msec="${k}" aria-selected="${sec === k}">${l}</button>`).join("");
     let inner = "";
