@@ -1352,6 +1352,21 @@ function renderUczniowie() {
     ${open ? `<span class="chip">${open} ${plural(open, "zadanie", "zadania", "zadań")}</span>` : ""}${s.loginEmail ? '<span class="chip ok">ma konto</span>' : ""}<span class="chip ${b.bal > 0 ? "bad" : "ok"}">${b.bal > 0 ? "do zapłaty " + zl(b.bal) : b.bal < 0 ? "nadpłata " + zl(-b.bal) : "opłacone"}</span></button>`; }).join("") || emptyP("Brak uczniów.")}</div>
   ${narch || S.showArch ? `<p><button class="btn sm ghost" data-act="toggleArch">${S.showArch ? "← Aktywni uczniowie" : `Archiwum (${narch})`}</button></p>` : ""}`;
 }
+function reminderText(s) {
+  const t = today(), ddmm = d => d.slice(8, 10) + "." + d.slice(5, 7);
+  const todo = Object.values(S.data.assignments).filter(a => a.studentId === s.id && !S.data.results[a.id] && !isArch(a));
+  if (!todo.length) return "";
+  const cnt = n => `${n} ${plural(n, "zadanie", "zadania", "zadań")}`;
+  const join = xs => xs.length < 2 ? xs.join("") : xs.slice(0, -1).join(", ") + " i " + xs[xs.length - 1];
+  const byDate = list => { const m = {}; list.forEach(a => (m[a.due] = m[a.due] || 0, m[a.due]++)); return Object.keys(m).sort().map(d => [d, m[d]]); };
+  const late = todo.filter(a => a.due && a.due < t), soon = todo.filter(a => a.due && a.due >= t), none = todo.filter(a => !a.due);
+  const lines = ["Hej, przypominam o zadaniach domowych."];
+  if (late.length) lines.push("", "Po terminie: " + join(byDate(late).map(([d, n]) => `${cnt(n)} (${ddmm(d)})`)));
+  if (soon.length) lines.push("", "Zbliżający się termin: " + join(byDate(soon).map(([d, n]) => `${cnt(n)} ${ddmm(d)}`)));
+  if (none.length) lines.push("", "Bez terminu: " + cnt(none.length));
+  return lines.join("\n");
+}
+
 function studentModal(s) {
   const ov = document.createElement("div"); ov.className = "ov";
   const draw = () => {
@@ -1365,7 +1380,7 @@ function studentModal(s) {
     const tabsH = [["zad", "Zadania"], ["lek", "Lekcje"], ["wpl", "Płatności"], ["dane", "Dane"]].map(([k, l]) => `<button type="button" data-msec="${k}" aria-selected="${sec === k}">${l}</button>`).join("");
     let inner = "";
     if (sec === "zad") inner = `<form class="panel" style="padding:14px 16px;display:grid;gap:12px" id="stAssign"><h3>Zadaj zadanie</h3>${assignFormHtml(s.id)}</form>
-    <section><h3>Zadania ucznia</h3>${as.length ? `<div class="list">${as.map(a => { const r = S.data.results[a.id];
+    <section><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Zadania ucznia</h3><button type="button" class="btn sm" data-remind>💬 Przypomnienie o zadaniach</button></div>${as.length ? `<div class="list">${as.map(a => { const r = S.data.results[a.id];
       return `<div class="row"><span class="grow"><b>${esc(taskTitle(a))}</b><span class="small muted">${kindLabel(a)}${a.due ? " · termin: " + fmtDate(a.due) : ""}</span></span>${r ? (ownKind(a) ? `<span class="chip ok">zrobione${r.by === "student" ? " (uczeń)" : ""}</span><button class="btn sm ghost" type="button" data-mact="undone" data-id="${a.id}" title="Cofnij odhaczenie">↺</button>` : `<span class="chip ${pct(r.score, r.max) >= 70 ? "ok" : pct(r.score, r.max) >= 50 ? "warn" : "bad"}">${r.score}/${r.max}</span>`) : (ownKind(a) ? `<button class="btn sm" type="button" data-mact="done" data-id="${a.id}">Odhacz</button>` : '<span class="chip">czeka</span>')}${r ? "" : `<input type="date" value="${esc(a.due || "")}" data-mdue="${a.id}" aria-label="Termin" style="width:auto;padding:5px 8px;font-size:13px"><button class="btn sm ghost" type="button" data-mact="del" data-id="${a.id}">usuń</button>`}</div>`; }).join("")}</div>` : '<p class="empty">Nic jeszcze nie zadano.</p>'}</section>`;
     else if (sec === "lek") inner = `<div class="acts"><button class="btn sm primary" type="button" data-mact="newLesson">+ Lekcja</button></div>
     <section><h3>Najbliższe</h3>${up.length ? `<div class="list">${up.map(l => lessonRow(l, { showDate: true, showName: false })).join("")}</div>` : emptyP("Brak zaplanowanych lekcji.")}</section>
@@ -1388,6 +1403,7 @@ function studentModal(s) {
   ov.addEventListener("change", e => { const d = e.target.closest("[data-mdue]"); if (d) saveDue(d, false); });
   ov.addEventListener("focusout", e => { const d = e.target.closest("[data-mdue]"); if (d) saveDue(d, true); });
   ov.addEventListener("click", async e => {
+    if (e.target.closest("[data-remind]")) { const txt = reminderText(s); if (!txt) { toast("Uczeń nie ma zadań do zrobienia."); return; } msgModal(txt, "Przypomnienie: " + s.name); return; }
     if (e.target === ov || e.target.closest("[data-x]")) { ov.remove(); render(); return; }
     const sb = e.target.closest("[data-msec]"); if (sb) { S.stSec = sb.dataset.msec; draw(); return; }
     const el = e.target.closest("[data-act=editLesson],[data-act=moveLesson],[data-act=setStatus]");
