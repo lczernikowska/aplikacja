@@ -144,7 +144,14 @@ const ADMIN_ONLY = ["adminTitle", "adminTopic", "adminSource"];
 const pubTest = t => { const o = {}; for (const [k, v] of Object.entries(t)) if (!ADMIN_ONLY.includes(k) && k !== "id" && !k.startsWith("_")) o[k] = v; return o; };
 const sortKeys = x => Array.isArray(x) ? x.map(sortKeys) : x && typeof x === "object" ? Object.fromEntries(Object.keys(x).sort().map(k => [k, sortKeys(x[k])])) : x;
 const stable = x => JSON.stringify(sortKeys(x));
-let SYNCING = false;
+let SYNCING = false, SYNC_INFO = null, LAST_ACT = 0;
+document.addEventListener("click", () => { LAST_ACT = Date.now(); }, true);
+function syncBadge() {
+  let b = document.getElementById("syncBadge");
+  if (!SYNC_INFO) { if (b) b.remove(); return; }
+  if (!b) { b = document.createElement("div"); b.id = "syncBadge"; b.style.cssText = "position:fixed;left:12px;bottom:12px;font-size:12px;padding:6px 10px;border-radius:99px;background:var(--surface);color:var(--muted);z-index:50"; document.body.appendChild(b); }
+  b.textContent = `Aktualizuję testy w bazie: ${SYNC_INFO.done}/${SYNC_INFO.total}`;
+}
 async function syncLocalTests(results) {
   const taken = new Set(results.map(r => r.testId)); const used = new Set(Object.values(S.data.assignments || {}).map(x => x.testId)); const jobs = []; let SY = {}; try { SY = JSON.parse(localStorage.getItem("pe_synced") || "{}"); } catch (x) { } const h = x => { let n = 0; const t = stable(x); for (let i = 0; i < t.length; i++) n = (n * 31 + t.charCodeAt(i)) | 0; return String(n); }; const mark = id => p => { SY[id] = h(p); try { localStorage.setItem("pe_synced", JSON.stringify(SY)); } catch (x) { } }; const RB = Object.getPrototypeOf(B) || B;
   const sameShape = (x, y) => Array.isArray(x) && Array.isArray(y) && x.length === y.length && x.every((q, i) => q.type === y[i].type && JSON.stringify(q.c) === JSON.stringify(y[i].c));
@@ -160,8 +167,16 @@ async function syncLocalTests(results) {
     S.data.tests[lt.id] = { ...(fs && taken.has(lt.id) ? fs : pub), id: lt.id, _pub: pub, _local: !fs || stale, title: lt.adminTitle || lt.title, topic: lt.adminTopic || lt.topic };
   }
   if (!jobs.length || SYNCING) return;
-  SYNCING = true; console.info("sync tests:", jobs.length);
-  (async () => { try { for (let k = 0; k < jobs.length; k += 8) await Promise.all(jobs.slice(k, k + 8).map(f => f().catch(e => console.warn("sync test", e)))); } finally { SYNCING = false; } })();
+  SYNCING = true; console.info("sync tests:", jobs.length); SYNC_INFO = { done: 0, total: jobs.length };
+  (async () => {
+    try {
+      await new Promise(r => setTimeout(r, 15000));
+      for (const f of jobs) {
+        while (Date.now() - LAST_ACT < 15000) await new Promise(r => setTimeout(r, 3000));
+        syncBadge(); await f().catch(e => console.warn("sync test", e)); SYNC_INFO.done++;
+      }
+    } finally { SYNCING = false; SYNC_INFO = null; syncBadge(); }
+  })();
 }
 
 async function loadAdmin() {
@@ -1696,7 +1711,7 @@ root.addEventListener("click", async e => {
       const id = el.dataset.id, a = S.data.assignments[id]; if (!a) { toast("Nie znaleziono zadania – odśwież stronę i spróbuj ponownie."); return; }
       const v = el.dataset.v === "1", prev = a.archived;
       a.archived = v; render(); toast(v ? "Przeniesiono do archiwum" : "Przywrócono z archiwum");
-      try { await Promise.race([B.update("assignments", id, { archived: v }), new Promise((_, rej) => setTimeout(() => rej(new Error("Brak odpowiedzi serwera – sprawdź internet")), 10000))]); }
+      try { await Promise.race([B.update("assignments", id, { archived: v }), new Promise((_, rej) => setTimeout(() => rej(new Error("Brak odpowiedzi serwera" + (SYNC_INFO ? ` (w tle trwa aktualizacja testów ${SYNC_INFO.done}/${SYNC_INFO.total})` : " – zapis nie dochodzi do bazy"))), 10000))]); }
       catch (e2) { a.archived = prev; render(); toast("Nie udało się zapisać archiwum: " + errMsg(e2)); }
     }
     else if (act === "delAssign") { if (!(await ask("Usunąć to zadanie?", "Usuń"))) return; await B.del("assignments", el.dataset.id); delete S.data.assignments[el.dataset.id]; render(); }
