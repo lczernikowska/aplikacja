@@ -146,20 +146,21 @@ const sortKeys = x => Array.isArray(x) ? x.map(sortKeys) : x && typeof x === "ob
 const stable = x => JSON.stringify(sortKeys(x));
 let SYNCING = false;
 async function syncLocalTests(results) {
-  const taken = new Set(results.map(r => r.testId)); const jobs = []; const RB = Object.getPrototypeOf(B) || B;
+  const taken = new Set(results.map(r => r.testId)); const used = new Set(Object.values(S.data.assignments || {}).map(x => x.testId)); const jobs = []; let SY = {}; try { SY = JSON.parse(localStorage.getItem("pe_synced") || "{}"); } catch (x) { } const h = x => { let n = 0; const t = stable(x); for (let i = 0; i < t.length; i++) n = (n * 31 + t.charCodeAt(i)) | 0; return String(n); }; const mark = id => p => { SY[id] = h(p); try { localStorage.setItem("pe_synced", JSON.stringify(SY)); } catch (x) { } }; const RB = Object.getPrototypeOf(B) || B;
   const sameShape = (x, y) => Array.isArray(x) && Array.isArray(y) && x.length === y.length && x.every((q, i) => q.type === y[i].type && JSON.stringify(q.c) === JSON.stringify(y[i].c));
   for (const lt of (window.PE_ARKUSZE || [])) {
     const pub = pubTest(lt); const fs = S.data.tests[lt.id];
+    let stale = false;
     if (fs) {
       const { id: _i, _pub, _local, ...cur } = fs;
-      if (!taken.has(lt.id) && stable(cur) !== stable(pub)) jobs.push(() => RB.set("tests", lt.id, pub));
+      if (!taken.has(lt.id) && stable(cur) !== stable(pub)) { if (SY[lt.id] === h(pub)) { } else if (used.has(lt.id)) jobs.push(() => RB.set("tests", lt.id, pub).then(() => mark(lt.id)(pub))); else stale = true; }
       else if (taken.has(lt.id) && stable(cur.questions) !== stable(pub.questions) && sameShape(cur.questions, pub.questions)) { jobs.push(() => RB.update("tests", lt.id, { questions: pub.questions, yt: pub.yt || "", title: pub.title, topic: pub.topic, instructions: pub.instructions })); fs.questions = pub.questions; }
       else if (cur.title !== pub.title || cur.topic !== pub.topic || cur.instructions !== pub.instructions || (pub.yt || "") !== (cur.yt || "")) jobs.push(() => RB.update("tests", lt.id, { title: pub.title, topic: pub.topic, instructions: pub.instructions, yt: pub.yt || "" }));
     }
-    S.data.tests[lt.id] = { ...(fs && taken.has(lt.id) ? fs : pub), id: lt.id, _pub: pub, _local: !fs, title: lt.adminTitle || lt.title, topic: lt.adminTopic || lt.topic };
+    S.data.tests[lt.id] = { ...(fs && taken.has(lt.id) ? fs : pub), id: lt.id, _pub: pub, _local: !fs || stale, title: lt.adminTitle || lt.title, topic: lt.adminTopic || lt.topic };
   }
   if (!jobs.length || SYNCING) return;
-  SYNCING = true;
+  SYNCING = true; console.info("sync tests:", jobs.length);
   (async () => { try { for (let k = 0; k < jobs.length; k += 8) await Promise.all(jobs.slice(k, k + 8).map(f => f().catch(e => console.warn("sync test", e)))); } finally { SYNCING = false; } })();
 }
 
