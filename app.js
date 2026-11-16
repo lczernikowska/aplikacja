@@ -142,23 +142,27 @@ function balanceBlock(b) {
 
 const ADMIN_ONLY = ["adminTitle", "adminTopic", "adminSource"];
 const pubTest = t => { const o = {}; for (const [k, v] of Object.entries(t)) if (!ADMIN_ONLY.includes(k) && k !== "id" && !k.startsWith("_")) o[k] = v; return o; };
+const sortKeys = x => Array.isArray(x) ? x.map(sortKeys) : x && typeof x === "object" ? Object.fromEntries(Object.keys(x).sort().map(k => [k, sortKeys(x[k])])) : x;
+const stable = x => JSON.stringify(sortKeys(x));
+let SYNCING = false;
 async function syncLocalTests(results) {
-  const taken = new Set(results.map(r => r.testId));
+  const taken = new Set(results.map(r => r.testId)); const jobs = []; const RB = Object.getPrototypeOf(B) || B;
+  const sameShape = (x, y) => Array.isArray(x) && Array.isArray(y) && x.length === y.length && x.every((q, i) => q.type === y[i].type && JSON.stringify(q.c) === JSON.stringify(y[i].c));
   for (const lt of (window.PE_ARKUSZE || [])) {
     const pub = pubTest(lt); const fs = S.data.tests[lt.id];
     if (fs) {
-      const { id: _i, ...cur } = fs;
-      try {
-        UNDO.off = true;
-        const sameShape = (x, y) => Array.isArray(x) && Array.isArray(y) && x.length === y.length && x.every((q, i) => q.type === y[i].type && JSON.stringify(q.c) === JSON.stringify(y[i].c));
-        if (!taken.has(lt.id) && JSON.stringify(cur) !== JSON.stringify(pub)) await B.set("tests", lt.id, pub);
-        else if (taken.has(lt.id) && JSON.stringify(cur.questions) !== JSON.stringify(pub.questions) && sameShape(cur.questions, pub.questions)) { await B.update("tests", lt.id, { questions: pub.questions, yt: pub.yt || "", title: pub.title, topic: pub.topic, instructions: pub.instructions }); fs.questions = pub.questions; }
-        else if (cur.title !== pub.title || cur.topic !== pub.topic || cur.instructions !== pub.instructions || (pub.yt || "") !== (cur.yt || "")) await B.update("tests", lt.id, { title: pub.title, topic: pub.topic, instructions: pub.instructions, yt: pub.yt || "" });
-      } catch (e) { console.warn("sync test", e); } finally { UNDO.off = false; }
+      const { id: _i, _pub, _local, ...cur } = fs;
+      if (!taken.has(lt.id) && stable(cur) !== stable(pub)) jobs.push(() => RB.set("tests", lt.id, pub));
+      else if (taken.has(lt.id) && stable(cur.questions) !== stable(pub.questions) && sameShape(cur.questions, pub.questions)) { jobs.push(() => RB.update("tests", lt.id, { questions: pub.questions, yt: pub.yt || "", title: pub.title, topic: pub.topic, instructions: pub.instructions })); fs.questions = pub.questions; }
+      else if (cur.title !== pub.title || cur.topic !== pub.topic || cur.instructions !== pub.instructions || (pub.yt || "") !== (cur.yt || "")) jobs.push(() => RB.update("tests", lt.id, { title: pub.title, topic: pub.topic, instructions: pub.instructions, yt: pub.yt || "" }));
     }
     S.data.tests[lt.id] = { ...(fs && taken.has(lt.id) ? fs : pub), id: lt.id, _pub: pub, _local: !fs, title: lt.adminTitle || lt.title, topic: lt.adminTopic || lt.topic };
   }
+  if (!jobs.length || SYNCING) return;
+  SYNCING = true;
+  (async () => { try { for (let k = 0; k < jobs.length; k += 8) await Promise.all(jobs.slice(k, k + 8).map(f => f().catch(e => console.warn("sync test", e)))); } finally { SYNCING = false; } })();
 }
+
 async function loadAdmin() {
   const [students, plans, tests, assignments, results, planState, mathProgress, materials, lessons, payments, engProgress] = await Promise.all(["students", "plans", "tests", "assignments", "results", "planState", "mathProgress", "materials", "lessons", "payments", "engProgress"].map(c => B.list(c)));
   const by = a => Object.fromEntries(a.map(x => [x.id, x]));
