@@ -72,8 +72,8 @@ async function fbBackend() {
     login: (e, p) => A.signInWithEmailAndPassword(auth, e, p),
     logout: () => A.signOut(auth),
     reset: e => A.sendPasswordResetEmail(auth, e),
-    async get(c, id) { const s = await F.getDoc(F.doc(db, c, id)); return s.exists() ? { id: s.id, ...s.data() } : null; },
-    async list(c, f) { const q = f ? F.query(F.collection(db, c), F.where(f[0], "==", f[1])) : F.collection(db, c); const s = await F.getDocs(q); return s.docs.map(d => ({ id: d.id, ...d.data() })); },
+    async get(c, id) { const s = await F.getDoc(F.doc(db, c, id)); return s.exists() ? { ...s.data(), id: s.id } : null; },
+    async list(c, f) { const q = f ? F.query(F.collection(db, c), F.where(f[0], "==", f[1])) : F.collection(db, c); const s = await F.getDocs(q); return s.docs.map(d => ({ ...d.data(), id: d.id })); },
     set: (c, id, d) => F.setDoc(F.doc(db, c, id), d),
     update: (c, id, d) => F.setDoc(F.doc(db, c, id), d, { merge: true }),
     del: (c, id) => F.deleteDoc(F.doc(db, c, id)),
@@ -1687,7 +1687,7 @@ root.addEventListener("click", async e => {
       for (let k = L.length - 1; k >= i; k--) { const s2 = k + 1 < L.length ? slots[k + 1] : { date: iso(last), time: L[k].time }; L[k].date = s2.date; L[k].time = s2.time; }
       await B.set("plans", S.sel, plan); toast("Przesunięto"); render();
     }
-    else if (act === "archAssign") { const a = S.data.assignments[el.dataset.id]; if (!a) return; const v = el.dataset.v === "1"; try { await patchDoc("assignments", el.dataset.id, { archived: v }); } catch (e) { toast("Nie udało się: " + errMsg(e)); return; } render(); toast(v ? "Przeniesiono do archiwum" : "Przywrócono z archiwum"); }
+    else if (act === "archAssign") { const a = S.data.assignments[el.dataset.id]; if (!a) { toast("Nie znaleziono zadania – odśwież stronę i spróbuj ponownie."); return; } const v = el.dataset.v === "1"; try { await patchDoc("assignments", el.dataset.id, { archived: v }); } catch (e) { toast("Nie udało się: " + errMsg(e)); return; } render(); toast(v ? "Przeniesiono do archiwum" : "Przywrócono z archiwum"); }
     else if (act === "delAssign") { if (!(await ask("Usunąć to zadanie?", "Usuń"))) return; await B.del("assignments", el.dataset.id); delete S.data.assignments[el.dataset.id]; render(); }
     else if (act === "makeLogin") loginModal(S.data.students[el.dataset.id]);
     else if (act === "seed") { if (!S.busy) await seedAll(); }
