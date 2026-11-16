@@ -1687,7 +1687,13 @@ root.addEventListener("click", async e => {
       for (let k = L.length - 1; k >= i; k--) { const s2 = k + 1 < L.length ? slots[k + 1] : { date: iso(last), time: L[k].time }; L[k].date = s2.date; L[k].time = s2.time; }
       await B.set("plans", S.sel, plan); toast("Przesunięto"); render();
     }
-    else if (act === "archAssign") { const a = S.data.assignments[el.dataset.id]; if (!a) { toast("Nie znaleziono zadania – odśwież stronę i spróbuj ponownie."); return; } const v = el.dataset.v === "1"; try { await patchDoc("assignments", el.dataset.id, { archived: v }); } catch (e) { toast("Nie udało się: " + errMsg(e)); return; } render(); toast(v ? "Przeniesiono do archiwum" : "Przywrócono z archiwum"); }
+    else if (act === "archAssign") {
+      const id = el.dataset.id, a = S.data.assignments[id]; if (!a) { toast("Nie znaleziono zadania – odśwież stronę i spróbuj ponownie."); return; }
+      const v = el.dataset.v === "1", prev = a.archived;
+      a.archived = v; render(); toast(v ? "Przeniesiono do archiwum" : "Przywrócono z archiwum");
+      try { await Promise.race([B.update("assignments", id, { archived: v }), new Promise((_, rej) => setTimeout(() => rej(new Error("Brak odpowiedzi serwera – sprawdź internet")), 10000))]); }
+      catch (e2) { a.archived = prev; render(); toast("Nie udało się zapisać archiwum: " + errMsg(e2)); }
+    }
     else if (act === "delAssign") { if (!(await ask("Usunąć to zadanie?", "Usuń"))) return; await B.del("assignments", el.dataset.id); delete S.data.assignments[el.dataset.id]; render(); }
     else if (act === "makeLogin") loginModal(S.data.students[el.dataset.id]);
     else if (act === "seed") { if (!S.busy) await seedAll(); }
