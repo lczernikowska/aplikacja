@@ -152,7 +152,7 @@ function syncBadge() {
   if (!b) { b = document.createElement("div"); b.id = "syncBadge"; b.style.cssText = "position:fixed;left:12px;bottom:12px;font-size:12px;padding:6px 10px;border-radius:99px;background:var(--surface);color:var(--muted);z-index:50"; document.body.appendChild(b); }
   b.textContent = `Aktualizuję testy w bazie: ${SYNC_INFO.done}/${SYNC_INFO.total}`;
 }
-async function syncLocalTests(results) {
+async function syncLocalTests(results, noWrite) {
   const taken = new Set(results.map(r => r.testId)); const used = new Set(Object.values(S.data.assignments || {}).map(x => x.testId)); const jobs = []; let SY = {}; try { SY = JSON.parse(localStorage.getItem("pe_synced") || "{}"); } catch (x) { } const h = x => { let n = 0; const t = stable(x); for (let i = 0; i < t.length; i++) n = (n * 31 + t.charCodeAt(i)) | 0; return String(n); }; const mark = id => p => { SY[id] = h(p); try { localStorage.setItem("pe_synced", JSON.stringify(SY)); } catch (x) { } }; const RB = Object.getPrototypeOf(B) || B;
   const sameShape = (x, y) => Array.isArray(x) && Array.isArray(y) && x.length === y.length && x.every((q, i) => q.type === y[i].type && JSON.stringify(q.c) === JSON.stringify(y[i].c));
   for (const lt of (window.PE_ARKUSZE || [])) {
@@ -166,7 +166,7 @@ async function syncLocalTests(results) {
     }
     S.data.tests[lt.id] = { ...(fs && taken.has(lt.id) ? fs : pub), id: lt.id, _pub: pub, _local: !fs || stale, title: lt.adminTitle || lt.title, topic: lt.adminTopic || lt.topic };
   }
-  if (!jobs.length || SYNCING) return;
+  if (noWrite || !jobs.length || SYNCING) return;
   SYNCING = true; console.info("sync tests:", jobs.length); SYNC_INFO = { done: 0, total: jobs.length };
   (async () => {
     try {
@@ -179,20 +179,29 @@ async function syncLocalTests(results) {
   })();
 }
 
-async function loadAdmin() {
-  const [students, plans, tests, assignments, results, planState, mathProgress, materials, lessons, payments, engProgress] = await Promise.all(["students", "plans", "tests", "assignments", "results", "planState", "mathProgress", "materials", "lessons", "payments", "engProgress"].map(c => B.list(c)));
+let TESTS_SYNCED = false;
+async function loadAdmin(light) {
   const by = a => Object.fromEntries(a.map(x => [x.id, x]));
+  if (light && S.data && S.data.tests) {
+    const L = ["students", "assignments", "results", "planState", "mathProgress", "lessons", "payments", "engProgress"];
+    const got = await Promise.all(L.map(c => B.list(c)));
+    L.forEach((c, i) => { S.data[c] = by(got[i]); });
+    return;
+  }
+  const [students, plans, tests, assignments, results, planState, mathProgress, materials, lessons, payments, engProgress] = await Promise.all(["students", "plans", "tests", "assignments", "results", "planState", "mathProgress", "materials", "lessons", "payments", "engProgress"].map(c => B.list(c)));
   const settingsApp = await B.get("settings", "app").catch(() => null);
   const results0 = results;
   S.data = { settings: settingsApp || {}, students: by(students), plans: by(plans), tests: by(tests), assignments: by(assignments), results: by(results), planState: by(planState), mathProgress: by(mathProgress), materials: { ...Object.fromEntries((SEED.materials || []).map(m => [m.id, m])), ...by(materials) }, lessons: by(lessons), payments: by(payments), engProgress: by(engProgress) };
-  await syncLocalTests(results0);
+  if (TESTS_SYNCED) { await syncLocalTests(results0, true); return; }
+  TESTS_SYNCED = true; await syncLocalTests(results0);
 }
-async function loadStudent() {
+async function loadStudent(light) {
   const sid = S.user.studentId;
   const [assignments, results, lessons, payments, settings, me, engP, mathP] = await Promise.all([B.list("assignments", ["studentId", sid]), B.list("results", ["studentId", sid]), B.list("lessons", ["studentId", sid]).catch(() => []), B.list("payments", ["studentId", sid]).catch(() => []), B.get("settings", "app").catch(() => null), B.get("students", sid).catch(() => null), B.get("engProgress", sid).catch(() => null), B.get("mathProgress", sid).catch(() => null)]);
   const testIds = [...new Set(assignments.map(a => a.testId).filter(Boolean))];
   const tests = {};
-  await Promise.all(testIds.map(async id => { const t = await B.get("tests", id); if (t) tests[id] = t; }));
+  const prevT = (light && S.data && S.data.tests) || {};
+  await Promise.all(testIds.map(async id => { if (prevT[id]) { tests[id] = prevT[id]; return; } const t = await B.get("tests", id); if (t) tests[id] = t; }));
   S.data = { assignments: Object.fromEntries(assignments.map(a => [a.id, a])), results: Object.fromEntries(results.map(r => [r.assignmentId || r.id, r])), tests, lessons, payments, settings, me, engP, mathP };
 }
 
@@ -1174,16 +1183,16 @@ async function autoComplete() {
 let refreshBusy = false, lastRefresh = Date.now();
 async function silentRefresh(force) {
   if (refreshBusy || !S.user || S.preview || S.busy || (S.view && S.view.type === "test")) return;
-  if (!force && Date.now() - lastRefresh < 20000) return;
+  if (!force && Date.now() - lastRefresh < 60000) return;
   const ae = document.activeElement;
   if (document.querySelector(".ov") || (ae && /INPUT|TEXTAREA|SELECT/.test(ae.tagName))) return;
   refreshBusy = true;
-  try { if (S.user.role === "admin") await loadAdmin(); else await loadStudent(); lastRefresh = Date.now(); if (!document.querySelector(".ov") && !(document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))) { const y = window.scrollY; render(); window.scrollTo(0, y); } }
+  try { if (S.user.role === "admin") await loadAdmin(true); else await loadStudent(true); lastRefresh = Date.now(); if (!document.querySelector(".ov") && !(document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))) { const y = window.scrollY; render(); window.scrollTo(0, y); } }
   catch (e) { console.warn("refresh", e); } finally { refreshBusy = false; }
 }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") silentRefresh(); });
 window.addEventListener("focus", () => silentRefresh());
-setInterval(() => { if (document.visibilityState === "visible") silentRefresh(true); }, 120000);
+setInterval(() => { if (document.visibilityState === "visible") silentRefresh(true); }, 600000);
 let lastDay = today();
 setInterval(async () => { if (today() !== lastDay) { lastDay = today(); await autoComplete(); if (S.user && S.user.role === "admin" && !document.querySelector(".ov")) render(); } }, 60000);
 
