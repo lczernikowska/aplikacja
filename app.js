@@ -1028,7 +1028,8 @@ function renderPlatnosci() {
 function renderZadania() {
   const st = Object.values(S.data.students).sort((a, b) => a.name.localeCompare(b.name, "pl"));
   const ts = Object.values(S.data.tests).sort((a, b) => a.title.localeCompare(b.title, "pl"));
-  const allA = Object.values(S.data.assignments).sort((a, b) => (b.due || "").localeCompare(a.due || ""));
+  const isDoneA = a => !!S.data.results[a.id];
+  const allA = Object.values(S.data.assignments).sort((a, b) => { const da = isDoneA(a), db = isDoneA(b); if (da !== db) return da ? 1 : -1; return da ? (b.due || "").localeCompare(a.due || "") : (a.due || "9999").localeCompare(b.due || "9999"); });
   const nArchA = allA.filter(isArch).length; if (!nArchA) S.showArchZ = false;
   const as = allA.filter(a => isArch(a) === !!S.showArchZ);
   return `<div class="head"><div><p class="eyebrow">Testy i zadania własne</p><h1>Zadania domowe</h1></div></div>
