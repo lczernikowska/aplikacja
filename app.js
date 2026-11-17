@@ -695,7 +695,7 @@ function renderTest() {
     const op = openPts(t); const nOpen = t.questions.filter(q => q.type === "open").length; const graded = Object.keys(r.openPts || {}).length;
     const cs = r.closedScore ?? (graded ? null : r.score), cm = r.closedMax ?? (graded ? null : r.max);
     const og = Object.values(r.openPts || {}).reduce((a, x) => a + x, 0);
-    top = `<div class="scorecard"><span class="score">${r.score}/${r.max}</span><div><b>${pct(r.score, r.max)}%</b><p class="small muted">${op ? `${t.subject === "ang" ? "Sprawdzane automatycznie" : "Zadania zamknięte"}: ${cs ?? "–"}/${cm ?? "–"} pkt · ${t.subject === "ang" ? "wypowiedź pisemna" : "zadania otwarte"}: ${graded ? `${og}/${op} pkt${graded < nOpen ? ` (sprawdzone ${graded} z ${nOpen})` : ""}` : `${op} pkt – ${t.subject === "ang" ? "czeka" : "czekają"} na sprawdzenie`}` : "Przejrzyj wyjaśnienia przy pytaniach, zwłaszcza tam, gdzie jest „Źle”."}</p></div></div>`;
+    top = `<div class="scorecard"><span class="score">${r.score}/${r.max}</span><div><b>${pct(r.score, r.max)}%${r.firstScore != null && !v.assignment?.only ? ` <span class="chip ok" style="vertical-align:middle">poprawione · pierwotnie ${r.firstScore}/${r.firstMax ?? r.max}</span>` : ""}</b><p class="small muted">${op ? `${t.subject === "ang" ? "Sprawdzane automatycznie" : "Zadania zamknięte"}: ${cs ?? "–"}/${cm ?? "–"} pkt · ${t.subject === "ang" ? "wypowiedź pisemna" : "zadania otwarte"}: ${graded ? `${og}/${op} pkt${graded < nOpen ? ` (sprawdzone ${graded} z ${nOpen})` : ""}` : `${op} pkt – ${t.subject === "ang" ? "czeka" : "czekają"} na sprawdzenie`}` : "Przejrzyj wyjaśnienia przy pytaniach, zwłaszcza tam, gdzie jest „Źle”."}</p></div></div>`;
   } else top = `<div class="notice small">Podgląd z kluczem odpowiedzi i wyjaśnieniami.</div>`;
   root.innerHTML = frame(`<div class="head"><div><button class="btn sm ghost" data-act="back" style="justify-self:start">← Wróć</button><p class="eyebrow">${esc(t.topic || "")}${t.level ? " · " + esc(t.level) : ""}</p><h1>${v.assignment && v.assignment.only ? "Poprawa: " : ""}${esc(t.title)}</h1>${v.assignment && v.assignment.only ? `<p class="small muted">Tylko zadania, które poprzednio wyszły źle (${v.assignment.only.length}).</p>` : ""}${v.who ? `<p class="muted">${esc(v.who)}</p>` : ""}</div>${v.mode === "key" && S.user.role === "admin" && !S.preview ? `<div class="acts"><button class="btn primary" data-act="giveTest" data-id="${esc(t.id)}">Zadaj uczniowi</button></div>` : ""}${v.mode === "result" && S.user.role === "admin" && !S.preview && v.result ? `<div class="acts"><button class="btn mustard" data-act="redoTest">Zadaj ponownie błędne (${wrongIdx(t, v.result).length})</button></div>` : ""}</div>
   ${top}<div class="sheet">${t.instructions ? `<p class="muted">${esc(t.instructions)}</p>` : ""}${ytBox(t)}${testBody(t, v.answers, v.mode)}</div>${bottom}`);
@@ -1171,6 +1171,26 @@ function openModal({ title, body, submit, foot = "", wide = false, onMount, onSu
 
 /* ---------- automatyczne odhaczanie (jak w starej aplikacji: po północy) ---------- */
 let autoBusy = false;
+async function mergeRedos() {
+  const RB = Object.getPrototypeOf(B) || B; let n = 0;
+  for (const a of Object.values(S.data.assignments || {})) {
+    if (!a.redoOf || !a.only || !a.only.length) continue;
+    const rr = S.data.results[a.id], ro = S.data.results[a.redoOf], t = S.data.tests[a.testId];
+    if (!rr || !ro || !t || !t.questions) continue;
+    const sig = stable({ a: rr.answers || {}, o: rr.over || {}, p: rr.openPts || {} });
+    if ((ro.redoApplied || {})[a.id] === sig) continue;
+    const answers = { ...(ro.answers || {}) }, over = { ...(ro.over || {}) }, openPtsM = { ...(ro.openPts || {}) };
+    a.only.forEach((i, j) => {
+      const ans = (rr.answers || {})[j]; if (ans !== undefined) answers[i] = ans; else delete answers[i];
+      const ov = (rr.over || {})[j]; if (ov != null) over[i] = ov; else delete over[i];
+      const g = (rr.openPts || {})[j]; if (g != null) openPtsM[i] = g; else if (t.questions[i] && t.questions[i].type === "open") delete openPtsM[i];
+    });
+    const cs = scoreTest(t, answers, over), og = Object.values(openPtsM).reduce((x, y) => x + y, 0);
+    const upd = { answers, over, openPts: openPtsM, closedScore: cs, score: cs + og, firstScore: ro.firstScore ?? ro.score, firstMax: ro.firstMax ?? ro.max, correctedAt: rr.submittedAt || new Date().toISOString(), redoApplied: { ...(ro.redoApplied || {}), [a.id]: sig } };
+    try { await RB.update("results", a.redoOf, upd); Object.assign(ro, upd); n++; } catch (e) { console.warn("merge redo", e); }
+  }
+  return n;
+}
 async function autoComplete() {
   if (!S.user || S.user.role !== "admin" || autoBusy || !S.data || !S.data.lessons) return;
   const t = today(); const due = lessonsArr().filter(l => l.status === "planned" && l.date < t);
@@ -1188,7 +1208,7 @@ async function silentRefresh(force) {
   const ae = document.activeElement;
   if (document.querySelector(".ov") || (ae && /INPUT|TEXTAREA|SELECT/.test(ae.tagName))) return;
   refreshBusy = true;
-  try { if (S.user.role === "admin") await loadAdmin(true); else await loadStudent(true); lastRefresh = Date.now(); if (!document.querySelector(".ov") && !(document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))) { const y = window.scrollY; render(); window.scrollTo(0, y); } }
+  try { if (S.user.role === "admin") { await loadAdmin(true); await mergeRedos().catch(() => 0); } else await loadStudent(true); lastRefresh = Date.now(); if (!document.querySelector(".ov") && !(document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))) { const y = window.scrollY; render(); window.scrollTo(0, y); } }
   catch (e) { console.warn("refresh", e); } finally { refreshBusy = false; }
 }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") silentRefresh(); });
@@ -1895,7 +1915,7 @@ document.addEventListener("click", e => { const im = e.target.closest("img[data-
   catch (e) { root.innerHTML = `<div class="wrap"><div class="notice bad" style="margin-top:40px">Nie udało się połączyć z Firebase. Sprawdź plik config.js. (${esc(e.message)})</div></div>`; return; }
   B.onAuth(async u => {
     S.user = u; S.view = null; S.data = null; UNDO.stack = []; UNDO.cur = null; undoBtn();
-    if (u) { root.innerHTML = frame('<p class="empty">Ładowanie…</p>'); try { if (u.role === "admin") { await loadAdmin(); await autoComplete(); loadLoc(); } else await loadStudent(); } catch (e) { root.innerHTML = frame(`<div class="notice bad">${esc(errMsg(e))}</div>`); return; } }
+    if (u) { root.innerHTML = frame('<p class="empty">Ładowanie…</p>'); try { if (u.role === "admin") { await loadAdmin(); await autoComplete(); mergeRedos().catch(() => {}); loadLoc(); } else await loadStudent(); } catch (e) { root.innerHTML = frame(`<div class="notice bad">${esc(errMsg(e))}</div>`); return; } }
     render();
   });
   if ("serviceWorker" in navigator && location.protocol === "https:" && !DEMO) navigator.serviceWorker.register("sw.js").catch(() => { });
