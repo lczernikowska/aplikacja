@@ -525,6 +525,11 @@ function photoBox(n, list, editable) {
 const openMax = t => t.questions.reduce((s, q) => s + (q.type === "open" ? q.pts || 0 : 0), 0);
 /* ---------- poprawa: test złożony tylko z wybranych zadań ---------- */
 const grpKey = q => String(q.label || "").replace(/\.\d+\.?$/, "").replace(/\.$/, "");
+const redosOf = a => a ? Object.values(S.data.assignments || {}).filter(x => x.redoOf === a.id).sort((x, y) => String(x.createdAt || "").localeCompare(String(y.createdAt || ""))) : [];
+function redoInfo(a) {
+  return redosOf(a).map(x => { const r = S.data.results[x.id]; const n = (x.only || []).length;
+    return `<span class="chip ${r ? "ok" : "warn"}" style="white-space:nowrap">Zadano ponownie: ${n} ${plural(n, "zadanie", "zadania", "zadań")}${x.due ? " · termin " + fmtDate(x.due) : ""} · ${r ? `zrobione ${r.score}/${r.max}` : "czeka"}</span>`; }).join("");
+}
 function subsetTest(t, only) {
   if (!only || !only.length) return t;
   const shown = new Set();
@@ -697,7 +702,7 @@ function renderTest() {
     const og = Object.values(r.openPts || {}).reduce((a, x) => a + x, 0);
     top = `<div class="scorecard"><span class="score">${r.score}/${r.max}</span><div><b>${pct(r.score, r.max)}%${r.firstScore != null && !v.assignment?.only ? ` <span class="chip ok" style="vertical-align:middle">poprawione · pierwotnie ${r.firstScore}/${r.firstMax ?? r.max}</span>` : ""}</b><p class="small muted">${op ? `${t.subject === "ang" ? "Sprawdzane automatycznie" : "Zadania zamknięte"}: ${cs ?? "–"}/${cm ?? "–"} pkt · ${t.subject === "ang" ? "wypowiedź pisemna" : "zadania otwarte"}: ${graded ? `${og}/${op} pkt${graded < nOpen ? ` (sprawdzone ${graded} z ${nOpen})` : ""}` : `${op} pkt – ${t.subject === "ang" ? "czeka" : "czekają"} na sprawdzenie`}` : "Przejrzyj wyjaśnienia przy pytaniach, zwłaszcza tam, gdzie jest „Źle”."}</p></div></div>`;
   } else top = `<div class="notice small">Podgląd z kluczem odpowiedzi i wyjaśnieniami.</div>`;
-  root.innerHTML = frame(`<div class="head"><div><button class="btn sm ghost" data-act="back" style="justify-self:start">← Wróć</button><p class="eyebrow">${esc(t.topic || "")}${t.level ? " · " + esc(t.level) : ""}</p><h1>${v.assignment && v.assignment.only ? "Poprawa: " : ""}${esc(t.title)}</h1>${v.assignment && v.assignment.only ? `<p class="small muted">Tylko zadania, które poprzednio wyszły źle (${v.assignment.only.length}).</p>` : ""}${v.who ? `<p class="muted">${esc(v.who)}</p>` : ""}</div>${v.mode === "key" && S.user.role === "admin" && !S.preview ? `<div class="acts"><button class="btn primary" data-act="giveTest" data-id="${esc(t.id)}">Zadaj uczniowi</button></div>` : ""}${v.mode === "result" && S.user.role === "admin" && !S.preview && v.result ? `<div class="acts"><button class="btn mustard" data-act="redoTest">Zadaj ponownie błędne (${wrongIdx(t, v.result).length})</button></div>` : ""}</div>
+  root.innerHTML = frame(`<div class="head"><div><button class="btn sm ghost" data-act="back" style="justify-self:start">← Wróć</button><p class="eyebrow">${esc(t.topic || "")}${t.level ? " · " + esc(t.level) : ""}</p><h1>${v.assignment && v.assignment.only ? "Poprawa: " : ""}${esc(t.title)}</h1>${v.assignment && v.assignment.only ? `<p class="small muted">Tylko zadania, które poprzednio wyszły źle (${v.assignment.only.length}).</p>` : ""}${v.who ? `<p class="muted">${esc(v.who)}</p>` : ""}</div>${v.mode === "key" && S.user.role === "admin" && !S.preview ? `<div class="acts"><button class="btn primary" data-act="giveTest" data-id="${esc(t.id)}">Zadaj uczniowi</button></div>` : ""}${v.mode === "result" && S.user.role === "admin" && !S.preview && v.result ? `<div class="acts" style="flex-direction:column;align-items:flex-end;gap:6px">${redoInfo(v.assignment)}<button class="btn ${redosOf(v.assignment).length ? "ghost" : "mustard"}" data-act="redoTest">${redosOf(v.assignment).length ? "Zadaj ponownie jeszcze raz" : "Zadaj ponownie błędne"} (${wrongIdx(t, v.result).length})</button></div>` : ""}</div>
   ${top}<div class="sheet">${t.instructions ? `<p class="muted">${esc(t.instructions)}</p>` : ""}${ytBox(t)}${testBody(t, v.answers, v.mode)}</div>${bottom}`);
 }
 async function submitTest() {
