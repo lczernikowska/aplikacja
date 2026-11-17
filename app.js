@@ -180,6 +180,15 @@ async function syncLocalTests(results, noWrite) {
 }
 
 let TESTS_SYNCED = false;
+async function fullTestsCheck() {
+  let last = 0; try { last = Number(localStorage.getItem("pe_tests_full") || 0); } catch (x) { }
+  if (Date.now() - last < 7 * 864e5 || !S.data || S.user?.role !== "admin") return;
+  const all = await B.list("tests"); const local = new Set((window.PE_ARKUSZE || []).map(t => t.id));
+  const only = all.filter(t => !local.has(t.id)); let added = 0;
+  for (const t of only) if (!S.data.tests[t.id]) { S.data.tests[t.id] = t; added++; }
+  try { localStorage.setItem("pe_fs_only", JSON.stringify(only.map(t => t.id))); localStorage.setItem("pe_tests_full", String(Date.now())); } catch (x) { }
+  if (added && !document.querySelector(".ov") && !(S.view && S.view.type === "test")) render();
+}
 async function loadAdmin(light) {
   const by = a => Object.fromEntries(a.map(x => [x.id, x]));
   if (light && S.data && S.data.tests) {
@@ -188,7 +197,12 @@ async function loadAdmin(light) {
     L.forEach((c, i) => { S.data[c] = by(got[i]); });
     return;
   }
-  const [students, plans, tests, assignments, results, planState, mathProgress, materials, lessons, payments, engProgress] = await Promise.all(["students", "plans", "tests", "assignments", "results", "planState", "mathProgress", "materials", "lessons", "payments", "engProgress"].map(c => B.list(c)));
+  const [students, plans, assignments, results, planState, mathProgress, materials, lessons, payments, engProgress] = await Promise.all(["students", "plans", "assignments", "results", "planState", "mathProgress", "materials", "lessons", "payments", "engProgress"].map(c => B.list(c)));
+  // testy z bazy pobieramy tylko te potrzebne (zadane, z wynikami albo istniejące tylko w bazie) – pełna lista testów to kilka MB
+  let fsOnly = []; try { fsOnly = JSON.parse(localStorage.getItem("pe_fs_only") || "[]"); } catch (x) { }
+  const need = [...new Set([...assignments.map(a => a.testId), ...results.map(r => r.testId), ...fsOnly].filter(Boolean))];
+  const tests = (await Promise.all(need.map(id => B.get("tests", id).catch(() => null)))).filter(Boolean);
+  setTimeout(() => fullTestsCheck().catch(() => {}), 5000);;
   const settingsApp = await B.get("settings", "app").catch(() => null);
   const results0 = results;
   S.data = { settings: settingsApp || {}, students: by(students), plans: by(plans), tests: by(tests), assignments: by(assignments), results: by(results), planState: by(planState), mathProgress: by(mathProgress), materials: { ...Object.fromEntries((SEED.materials || []).map(m => [m.id, m])), ...by(materials) }, lessons: by(lessons), payments: by(payments), engProgress: by(engProgress) };
