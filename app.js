@@ -1230,7 +1230,7 @@ async function silentRefresh(force) {
   const ae = document.activeElement;
   if (document.querySelector(".ov") || (ae && /INPUT|TEXTAREA|SELECT/.test(ae.tagName))) return;
   refreshBusy = true;
-  try { if (S.user.role === "admin") { await loadAdmin(true); await mergeRedos().catch(() => 0); } else await loadStudent(true); lastRefresh = Date.now(); if (!document.querySelector(".ov") && !(document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))) { const y = window.scrollY; render(); window.scrollTo(0, y); } }
+  try { if (S.user.role === "admin") { await loadAdmin(true); await mergeRedos().catch(() => 0); } else await loadStudent(true); lastRefresh = Date.now(); saveCache(); if (!document.querySelector(".ov") && !(document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))) { const y = window.scrollY; render(); window.scrollTo(0, y); } }
   catch (e) { console.warn("refresh", e); } finally { refreshBusy = false; }
 }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") silentRefresh(); });
@@ -1689,7 +1689,7 @@ root.addEventListener("click", async e => {
     if (act === "logout" && S.preview) { endPreview(); return; }
     if (S.user && S.user.role === "admin" && await korepAct(act, el)) return;
     if (act === "tab") { S.tab = el.dataset.k; S.view = null; render(); window.scrollTo(0, 0); }
-    else if (act === "logout") { S.view = null; await B.logout(); }
+    else if (act === "logout") { S.view = null; const k = cacheKey(S.user); if (k) await IDB.del(k); await B.logout(); }
     else if (act === "hideInstall") { try { localStorage.setItem("pe_install_hidden", "1"); } catch (x) { } render(); }
     else if (act === "demoAdmin") B.demoLogin({ uid: "demo-admin", role: "admin", name: "Laura", email: "podglad" });
     else if (act === "demoStudent") { const s = SEED.students.find(x => x.id === el.dataset.id); B.demoLogin({ uid: "demo-" + s.id, role: "student", studentId: s.id, name: s.name, email: "podglad" }); }
@@ -1904,7 +1904,7 @@ function withUndo(B) {
   // stan „przed” bierzemy z pamięci aplikacji (bez dodatkowego zapytania do serwera – to spowalniało każdy zapis)
   const before = async (c, id) => { const x = cached(c, id); if (x !== undefined) return stripId(x); try { return stripId(await B.get(c, id)); } catch (e) { return null; } };
   const W = Object.create(B);
-  for (const m of ["set", "update", "del"]) W[m] = async (c, id, d) => { if (isAdmin()) undoRec(c, id, await before(c, id)); return B[m](c, id, d); };
+  for (const m of ["set", "update", "del"]) W[m] = async (c, id, d) => { WRITE_SEQ++; if (isAdmin()) undoRec(c, id, await before(c, id)); return B[m](c, id, d); };
   W.bulk = async (c, entries, onProg) => { if (isAdmin()) for (const [id] of entries) { const x = cached(c, id); undoRec(c, id, x === undefined ? null : stripId(x)); } return B.bulk(c, entries, onProg); };
   return W;
 }
@@ -1931,13 +1931,50 @@ async function undoLast() {
 }
 
 document.addEventListener("click", e => { const im = e.target.closest("img[data-zoom]"); if (!im) return; const o = document.createElement("div"); o.className = "zoomov"; o.innerHTML = `<img src="${im.src}" alt="Powiększone zdjęcie">`; o.addEventListener("click", () => o.remove()); document.body.appendChild(o); });
+/* ---------------- pamięć podręczna danych (szybki start) ---------------- */
+const IDB = (() => { let p; const db = () => p || (p = new Promise((res, rej) => { const r = indexedDB.open("pe-cache", 1); r.onupgradeneeded = () => r.result.createObjectStore("kv"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }));
+  const tx = async (mode, fn) => { const d = await db(); return new Promise((res, rej) => { const t = d.transaction("kv", mode); const q = fn(t.objectStore("kv")); t.oncomplete = () => res(q && q.result); t.onerror = () => rej(t.error); }); };
+  return { get: k => tx("readonly", s => s.get(k)).catch(() => null), set: (k, v) => tx("readwrite", s => s.put(v, k)).catch(() => null), del: k => tx("readwrite", s => s.delete(k)).catch(() => null) }; })();
+const cacheKey = u => u ? "data:" + (u.uid || u.email || u.role) : null;
+let cacheTimer = null, WRITE_SEQ = 0;
+function saveCache() {
+  if (DEMO || !S.user || !S.data || S.preview) return;
+  clearTimeout(cacheTimer);
+  cacheTimer = setTimeout(() => {
+    try {
+      const d = { ...S.data };
+      if (S.user.role === "admin" && d.tests) { const t = {}; for (const [k, v] of Object.entries(d.tests)) if (!v._local) { const { _pub, _local, ...rest } = v; t[k] = rest; } d.tests = t; }
+      IDB.set(cacheKey(S.user), { v: 1, at: Date.now(), role: S.user.role, data: JSON.parse(JSON.stringify(d)) });
+    } catch (e) { console.warn("cache", e); }
+  }, 800);
+}
+async function loadCache(u) {
+  if (DEMO) return false;
+  const c = await IDB.get(cacheKey(u)); if (!c || c.v !== 1 || c.role !== u.role || !c.data) return false;
+  if (Date.now() - c.at > 14 * 864e5) return false;
+  S.data = c.data;
+  if (u.role === "admin") await syncLocalTests(Object.values(S.data.results || {}), true);
+  return true;
+}
+const safeToRerender = () => !document.querySelector(".ov") && !(document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) && !(S.view && S.view.type === "test" && S.view.mode === "take");
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") saveCache(); });
 /* ---------------- start ---------------- */
 (async () => {
   try { B = withUndo(DEMO ? demoBackend() : await fbBackend()); }
   catch (e) { root.innerHTML = `<div class="wrap"><div class="notice bad" style="margin-top:40px">Nie udało się połączyć z Firebase. Sprawdź plik config.js. (${esc(e.message)})</div></div>`; return; }
   B.onAuth(async u => {
     S.user = u; S.view = null; S.data = null; UNDO.stack = []; UNDO.cur = null; undoBtn();
-    if (u) { root.innerHTML = frame('<p class="empty">Ładowanie…</p>'); try { if (u.role === "admin") { await loadAdmin(); await autoComplete(); mergeRedos().catch(() => {}); loadLoc(); } else await loadStudent(); } catch (e) { root.innerHTML = frame(`<div class="notice bad">${esc(errMsg(e))}</div>`); return; } }
+    if (u) {
+      const fresh = async () => { const seq = WRITE_SEQ; if (u.role === "admin") { await loadAdmin(); if (WRITE_SEQ !== seq) await loadAdmin(true); await autoComplete(); mergeRedos().catch(() => {}); loadLoc(); } else { await loadStudent(); if (WRITE_SEQ !== seq) await loadStudent(true); } saveCache(); };
+      let cached = false; try { cached = await loadCache(u); } catch (e) { cached = false; }
+      if (cached) {
+        render();
+        fresh().then(() => { if (S.user !== u) return; lastRefresh = Date.now(); if (safeToRerender()) { const y = window.scrollY; render(); window.scrollTo(0, y); } }).catch(e => console.warn("fresh load", e));
+        return;
+      }
+      root.innerHTML = frame('<p class="empty">Ładowanie…</p>');
+      try { await fresh(); } catch (e) { root.innerHTML = frame(`<div class="notice bad">${esc(errMsg(e))}</div>`); return; }
+    }
     render();
   });
   if ("serviceWorker" in navigator && location.protocol === "https:" && !DEMO) navigator.serviceWorker.register("sw.js").catch(() => { });
