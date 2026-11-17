@@ -711,7 +711,7 @@ function renderTest() {
   const total = closedQ.length; const answered = closedQ.filter(([q, n]) => filled(q, v.answers[n])).length;
   let top = "", bottom = "";
   if (v.mode === "take") {
-    bottom = `<div class="submitbar"><span class="muted">Odpowiedzi: <b>${answered}/${total}</b></span><button class="btn primary" data-act="submitTest" ${S.busy ? "disabled" : ""}>Oddaj test</button></div>`;
+    bottom = `<div class="submitbar"><span class="muted">Odpowiedzi: <b>${answered}/${total}</b><span class="small" id="draftInfo" style="display:block;font-weight:400">${draftLabel(v.draftAt)}</span></span><span style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">${S.preview ? "" : `<button class="btn ghost" data-act="saveDraft">Zapisz wersję roboczą</button>`}<button class="btn primary" data-act="submitTest" ${S.busy ? "disabled" : ""}>Oddaj test</button></span></div>`;
   } else if (v.mode === "result") {
     const r = v.result;
     const op = openPts(t); const nOpen = t.questions.filter(q => q.type === "open").length; const graded = Object.keys(r.openPts || {}).length;
@@ -735,7 +735,7 @@ async function submitTest() {
   let photos = {}; if (nPh) { S.busy = true; renderTest(); photos = await fitPhotos(v.photos); S.busy = false; if (!photos) { renderTest(); toast("Zdjęcia są za duże – usuń część z nich i spróbuj jeszcze raz."); return; } }
   const res = { assignmentId: v.assignment.id, studentId: S.user.studentId, testId: t.id, answers: v.answers, score, max: maxTest(t), closedScore: score, closedMax: maxTest(t), photos, submittedAt: new Date().toISOString() };
   S.busy = true; renderTest();
-  try { await B.set("results", v.assignment.id, res); try { sessionStorage.removeItem("pe_draft_" + v.assignment.id); } catch (err) { } S.data.results[v.assignment.id] = res; S.view = { ...v, mode: "result", result: res }; }
+  try { await B.set("results", v.assignment.id, res); draftClear(v.assignment.id); S.data.results[v.assignment.id] = res; S.view = { ...v, mode: "result", result: res }; }
   catch (e) { toast(errMsg(e)); }
   S.busy = false; renderTest(); window.scrollTo(0, 0);
 }
@@ -1720,8 +1720,9 @@ root.addEventListener("click", async e => {
     else if (act === "openTest") {
       const a = S.data.assignments[el.dataset.id]; const t = testForAssign(a); if (!t) return toast("Nie znaleziono testu.");
       const r = S.data.results[a.id];
-      let draft = {}; try { draft = JSON.parse(sessionStorage.getItem("pe_draft_" + a.id) || "{}") || {}; } catch (err) { }
-      S.view = r ? { type: "test", mode: "result", test: t, assignment: a, answers: r.answers || {}, result: r } : { type: "test", mode: "take", test: t, assignment: a, answers: draft };
+      const dr = draftLoad(a.id), draft = dr.answers;
+      S.view = r ? { type: "test", mode: "result", test: t, assignment: a, answers: r.answers || {}, result: r } : { type: "test", mode: "take", test: t, assignment: a, answers: draft, draftAt: dr.at };
+      if (!r) IDB.get("draftph:" + a.id).then(ph => { if (ph && S.view && S.view.assignment === a && S.view.mode === "take" && !S.view.photos) { S.view.photos = ph; const y = window.scrollY; renderTest(); window.scrollTo(0, y); } });
       render(); window.scrollTo(0, 0);
     }
     else if (act === "ovr") {
@@ -1731,14 +1732,15 @@ root.addEventListener("click", async e => {
       const upd = { over, closedScore: cs, closedMax: cm, score: cs + Object.values(op).reduce((a, x) => a + x, 0), max: cm + (has ? openMax(S.view.test) : 0) };
       await B.update("results", aid, upd); Object.assign(r, upd); S.data.results[aid] = r; const y = window.scrollY; renderTest(); window.scrollTo(0, y); toast(`Zapisano · wynik ${upd.score}/${upd.max}`);
     }
-    else if (act === "phDel") { const n = el.dataset.n; S.view.photos[n].splice(Number(el.dataset.i), 1); const y = window.scrollY; renderTest(); window.scrollTo(0, y); }
+    else if (act === "phDel") { const n = el.dataset.n; S.view.photos[n].splice(Number(el.dataset.i), 1); draftSave(true, true); const y = window.scrollY; renderTest(); window.scrollTo(0, y); }
     else if (act === "ans") { if (S.view.mode !== "take") return; const n = el.dataset.n, val = JSON.parse(el.dataset.v), q = S.view.test.questions[n];
-      if (q.type === "multi") { let a = (S.view.answers[n] || []).slice(); a = a.includes(val) ? a.filter(x => x !== val) : [...a, val]; if (a.length > (q.k || q.c.length)) a.shift(); S.view.answers[n] = a.sort(); } else S.view.answers[n] = val; try { sessionStorage.setItem("pe_draft_" + S.view.assignment.id, JSON.stringify(S.view.answers)); } catch (err) { } const y = window.scrollY; renderTest(); window.scrollTo(0, y); }
+      if (q.type === "multi") { let a = (S.view.answers[n] || []).slice(); a = a.includes(val) ? a.filter(x => x !== val) : [...a, val]; if (a.length > (q.k || q.c.length)) a.shift(); S.view.answers[n] = a.sort(); } else S.view.answers[n] = val; draftSave(true); const y = window.scrollY; renderTest(); window.scrollTo(0, y); }
     else if (act === "fcFlip") { S.view.fc.flipped = !S.view.fc.flipped; renderCards(); }
     else if (act === "fcYes") await fcAnswer(true);
     else if (act === "fcNo") await fcAnswer(false);
     else if (act === "fcDir") { S.view.fc.dir = el.dataset.k; S.view.fc.flipped = false; renderCards(); }
     else if (act === "fcAgain") { const r = S.view.result || {}; const ix = el.dataset.k === "hard" && (r.hard || []).length ? r.hard : S.view.test.questions.map((_, i) => i); fcStart(ix, true); renderCards(); window.scrollTo(0, 0); }
+    else if (act === "saveDraft") draftSave(false);
     else if (act === "submitTest") await submitTest();
     else if (act === "back") { S.view = null; render(); }
     else if (act === "previewTest") { const t = S.data.tests[el.dataset.id]; S.view = { type: "test", mode: "key", test: { id: el.dataset.id, ...t }, answers: Object.fromEntries(t.questions.map((q, n) => [n, q.c])) }; render(); window.scrollTo(0, 0); }
@@ -1778,7 +1780,7 @@ root.addEventListener("input", e => {
     const n = ds.txt ?? ds.essay; S.view.answers[n] = e.target.value;
     if (ds.essay !== undefined) { const q = S.view.test.questions[n]; const w = (e.target.value.trim().match(/\S+/g) || []).length; const el = root.querySelector(`[data-wc="${n}"]`); if (el) el.textContent = `Liczba wyrazów: ${w}${q.words ? ` (wymagane ${q.words[0]}–${q.words[1]})` : ""}`; }
     const bar = root.querySelector(".submitbar b"); if (bar) { const t = S.view.test; const cq = t.questions.map((q, i) => [q, i]).filter(([q]) => q.type !== "open"); bar.textContent = `${cq.filter(([q, i]) => { const a = S.view.answers[i]; return a !== undefined && String(a).trim() !== "" && !(q.type === "multi" && !(a || []).length); }).length}/${cq.length}`; }
-    try { sessionStorage.setItem("pe_draft_" + S.view.assignment.id, JSON.stringify(S.view.answers)); } catch (err) { }
+    draftSave(true);
     return;
   }
   const k = ds.filter; if (!k) return; S.q[k] = e.target.value; applyFilter(k); });
@@ -1821,7 +1823,7 @@ root.addEventListener("change", async e => {
     const n = e.target.dataset.photo; const files = [...e.target.files]; if (!files.length) return;
     S.view.photos = S.view.photos || {}; S.view.photos[n] = S.view.photos[n] || [];
     try { for (const f of files.slice(0, 3)) S.view.photos[n].push(await compressImg(f)); } catch (err) { toast("Nie udało się wczytać zdjęcia."); }
-    const y = window.scrollY; renderTest(); window.scrollTo(0, y); toast("Zdjęcie dodane"); return;
+    draftSave(true, true); const y = window.scrollY; renderTest(); window.scrollTo(0, y); toast("Zdjęcie dodane"); return;
   }
   if (e.target.dataset && e.target.dataset.gpts !== undefined && S.view && S.view.result) {
     const n = e.target.dataset.gpts, q = S.view.test.questions[n], r = S.view.result, aid = S.view.assignment.id;
@@ -1935,6 +1937,22 @@ document.addEventListener("click", e => { const im = e.target.closest("img[data-
 const IDB = (() => { let p; const db = () => p || (p = new Promise((res, rej) => { const r = indexedDB.open("pe-cache", 1); r.onupgradeneeded = () => r.result.createObjectStore("kv"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }));
   const tx = async (mode, fn) => { const d = await db(); return new Promise((res, rej) => { const t = d.transaction("kv", mode); const q = fn(t.objectStore("kv")); t.oncomplete = () => res(q && q.result); t.onerror = () => rej(t.error); }); };
   return { get: k => tx("readonly", s => s.get(k)).catch(() => null), set: (k, v) => tx("readwrite", s => s.put(v, k)).catch(() => null), del: k => tx("readwrite", s => s.delete(k)).catch(() => null) }; })();
+/* ---------------- wersja robocza testu (zapis na urządzeniu) ---------------- */
+function draftSave(silent, withPhotos) {
+  const v = S.view; if (!v || !v.assignment || v.mode !== "take" || S.preview) return;
+  const id = v.assignment.id, at = Date.now();
+  try { localStorage.setItem("pe_draft_" + id, JSON.stringify({ answers: v.answers || {}, at })); } catch (e) { }
+  if (withPhotos || !silent) { if (v.photos && Object.keys(v.photos).length) IDB.set("draftph:" + id, v.photos); else IDB.del("draftph:" + id); }
+  v.draftAt = at; const el = document.getElementById("draftInfo"); if (el) el.textContent = draftLabel(at);
+  if (!silent) toast("Zapisano wersję roboczą – możesz wrócić do testu później");
+}
+const draftLabel = at => at ? `Wersja robocza zapisana ${new Date(at).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}` : "Odpowiedzi zapisują się automatycznie na tym urządzeniu";
+function draftLoad(id) {
+  let d = null; try { d = JSON.parse(localStorage.getItem("pe_draft_" + id) || "null"); } catch (e) { }
+  if (!d) { try { const old = JSON.parse(sessionStorage.getItem("pe_draft_" + id) || "null"); if (old) d = { answers: old, at: 0 }; } catch (e) { } }
+  return d && d.answers ? d : { answers: {}, at: 0 };
+}
+function draftClear(id) { try { localStorage.removeItem("pe_draft_" + id); sessionStorage.removeItem("pe_draft_" + id); } catch (e) { } IDB.del("draftph:" + id); }
 const cacheKey = u => u ? "data:" + (u.uid || u.email || u.role) : null;
 let cacheTimer = null, WRITE_SEQ = 0;
 function saveCache() {
