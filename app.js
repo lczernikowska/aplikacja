@@ -97,6 +97,14 @@ async function fbBackend() {
 let B = null;
 const S = { user: null, tab: "dzis", sel: null, showAll: false, view: null, data: null, busy: false };
 
+function askDup(msg, nNew) {
+  return new Promise(res => {
+    const ov = document.createElement("div"); ov.className = "ov";
+    ov.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><header><h2>⚠️ Część już była zadana</h2></header><div class="mb"><p style="white-space:pre-line">${esc(msg)}</p></div><footer><button class="btn" data-r="0">Anuluj</button><button class="btn" data-r="all">Zadaj wszystko, też powtórnie</button>${nNew ? `<button class="btn primary" data-r="skip">Zadaj bez powtórzeń (${nNew})</button>` : ""}</footer></div>`;
+    document.body.appendChild(ov);
+    ov.addEventListener("click", e => { const b = e.target.closest("[data-r]"); if (b || e.target === ov) { ov.remove(); res(b && b.dataset.r !== "0" ? b.dataset.r : null); } });
+  });
+}
 function ask(msg, okLabel = "Tak") {
   return new Promise(res => {
     const ov = document.createElement("div"); ov.className = "ov";
@@ -344,10 +352,10 @@ function giveTestModal(tid) {
     onMount: (f, ov) => wireDue(ov),
     onSubmit: async fd => {
       const sids = [...new Set([String(fd.get("sid") || ""), ...fd.getAll("sids")].filter(Boolean))]; if (!sids.length) { toast("Wybierz ucznia."); return false; }
-      const dup = sids.filter(sid => had(sid).length);
-      if (dup.length && !(await ask(`Ten test dostał/a już: ${dup.map(sName).join(", ")}. Zadać jeszcze raz?`, "Zadaj mimo to"))) return false;
+      const dup = sids.filter(sid => had(sid).length); let go = sids;
+      if (dup.length) { const r = await askDup(`Ten test dostał/a już: ${dup.map(sName).join(", ")}.`, sids.length - dup.length); if (!r) return false; if (r === "skip") go = sids.filter(x => !dup.includes(x)); }
       const due = String(fd.get("due") || "");
-      for (const sid of sids) await addAssignment(sid, tid, due);
+      for (const sid of go) await addAssignment(sid, tid, due); sids.length = 0; sids.push(...go);
       toast(`Zadane: ${sids.map(sName).join(", ")}`); return true;
     } });
 }
@@ -384,10 +392,11 @@ async function submitAssign(f) {
     const list = items.length ? items : [currentItem(f)].filter(Boolean);
     if (!list.length) { toast(f.get("kind") === "custom" ? "Wpisz tytuł zadania." : "Wybierz, co zadać."); return false; }
     const due = f.get("due");
-    const dup = []; for (const sid of sids) for (const it of list) { if (it.kind === "test" && Object.values(S.data.assignments).some(a => a.studentId === sid && a.testId === it.id)) dup.push(`${sName(sid)}: ${it.label}`); if (it.kind === "material" && givenTo(sid, it.id).length) dup.push(`${sName(sid)}: ${it.label}`); }
-    if (dup.length && !(await ask(`Niektóre zadania już były zadane:\n${dup.slice(0, 8).join("\n")}${dup.length > 8 ? `\n…i ${dup.length - 8} więcej` : ""}\nZadać mimo to?`, "Zadaj mimo to"))) return false;
+    const isDup = (sid, it) => (it.kind === "test" && Object.values(S.data.assignments).some(a => a.studentId === sid && a.testId === it.id)) || (it.kind === "material" && givenTo(sid, it.id).length > 0);
+    const dup = []; let tot = 0; for (const sid of sids) for (const it of list) { tot++; if (isDup(sid, it)) dup.push(`${sName(sid)}: ${it.label}`); }
+    let skip = false; if (dup.length) { const r = await askDup(`Już było zadane:\n${dup.slice(0, 10).join("\n")}${dup.length > 10 ? `\n…i ${dup.length - 10} więcej` : ""}`, tot - dup.length); if (!r) return false; skip = r === "skip"; }
     S.busy = true; let n = 0;
-    try { for (const sid of sids) for (const it of list) {
+    try { for (const sid of sids) for (const it of list) { if (skip && isDup(sid, it)) continue;
       if (it.kind === "test") await addAssignment(sid, it.id, due);
       else if (it.kind === "material") await giveMaterial(sid, S.data.materials[it.id], { due, noAsk: true });
       else await addCustom(sid, it.title, it.desc, due);
@@ -398,7 +407,7 @@ async function submitAssign(f) {
   if (f.get("kind") === "test") {
     if (!f.get("tid")) { toast("Wybierz test."); return false; }
     const was = Object.values(S.data.assignments).find(a => a.studentId === sid && a.testId === f.get("tid"));
-    if (was && !(await ask(`${sName(sid)} dostał/a już ten test${was.due ? " (termin " + fmtDate(was.due) + ")" : ""}. Zadać jeszcze raz?`, "Zadaj mimo to"))) return false;
+    if (was && !(await askDup(`${sName(sid)} dostał/a już ten test${was.due ? " (termin " + fmtDate(was.due) + ")" : ""}.`, 0))) return false;
     await addAssignment(sid, f.get("tid"), due);
   }
   else if (f.get("kind") === "material") {
@@ -1603,6 +1612,7 @@ function seriesModal(s, redraw) {
   <div style="display:flex;gap:8px 16px;flex-wrap:wrap">${G.map(g => `<label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" name="${g.k}">${esc(g.l)} <span class="muted">(${Object.keys(g.m).length})</span></label>`).join("")}</div>
   <div class="frow"><label class="f">Od nr<input type="number" name="start" min="1" max="${maxN}" value="1"></label><label class="f">Do nr<input type="number" name="end" min="1" max="${maxN}" value="${maxN}"></label><label class="f">Co ile dni<input type="number" name="every" min="1" max="60" value="10"></label><label class="f">Pierwszy termin<input type="date" name="first" value="${addDays(today(), 10)}"></label></div>
   <p class="small muted" style="margin:0">Pozycje z tym samym numerem (np. fiszki 3 i czytanka 3) mają ten sam termin. Każdą kolejną uczeń zobaczy dopiero w dniu terminu poprzedniej, więc lista zadań mu się nie zapcha.</p>
+  <div data-dupw class="notice warn" hidden></div><label class="small" data-dupopt hidden style="display:flex;gap:6px;align-items:center"><input type="checkbox" name="redo">zadaj też powtórnie to, co już było zadane</label>
   <div data-prev class="small" style="max-height:220px;overflow:auto;border:1px dashed var(--line);border-radius:10px;padding:8px 10px"></div></form>
   <footer><button class="btn" data-x type="button">Anuluj</button><button class="btn primary" data-go type="button">Zadaj serię</button></footer></div>`;
   document.body.appendChild(ov);
@@ -1610,12 +1620,16 @@ function seriesModal(s, redraw) {
   const plan = () => { const f = new FormData(form); const sel = G.filter(g => f.get(g.k)); const st = +f.get("start") || 1, en = +f.get("end") || maxN, ev = +f.get("every") || 10, first = f.get("first") || today(); const out = [];
     for (let n = st; n <= en; n++) { const due = addDays(first, (n - st) * ev), from = n === st ? "" : addDays(first, (n - st - 1) * ev);
       for (const g of sel) { const t = g.m[n]; if (!t) continue; const had = Object.values(S.data.assignments).some(a => a.studentId === s.id && a.testId === t.id); out.push({ t, due, from, had }); } } return out; };
-  const prev = () => { const P = plan(); ov.querySelector("[data-prev]").innerHTML = P.length ? P.map(x => `<div>${fmtDate(x.due)} – ${esc(x.t.title)}${x.had ? ' <span class="chip warn">już zadane – pominę</span>' : ""}</div>`).join("") : "Zaznacz, co ma być w serii."; };
+  const prev = () => { const P = plan(), D = P.filter(x => x.had), redo = new FormData(form).get("redo"), N = redo ? P.length : P.length - D.length;
+    const w = ov.querySelector("[data-dupw]"); w.hidden = !D.length; ov.querySelector("[data-dupopt]").hidden = !D.length;
+    w.innerHTML = D.length ? `⚠️ <b>${D.length} ${plural(D.length, "pozycja była", "pozycje były", "pozycji było")} już zadane</b>: ${esc(D.slice(0, 6).map(x => x.t.title.replace(/:.*/, "").replace(/ \(.*/, "") + (x.t.kind === "fiszki" ? " " + (x.t.level === "PP" ? "podst." : "rozsz.") : " " + x.t.level)).join(", "))}${D.length > 6 ? "…" : ""}. ${redo ? "Zostaną zadane jeszcze raz." : "Pominę je – reszta zostanie dodana bez dubli."}` : "";
+    ov.querySelector("[data-prev]").innerHTML = P.length ? P.map(x => `<div>${fmtDate(x.due)} – ${esc(x.t.title)}${x.had ? ` <span class="chip warn">${redo ? "już zadane – zadam ponownie" : "już zadane – pominę"}</span>` : ""}</div>`).join("") : "Zaznacz, co ma być w serii.";
+    ov.querySelector("[data-go]").textContent = N ? `Zadaj serię (${N})` : "Zadaj serię"; };
   form.addEventListener("input", prev); prev();
   ov.addEventListener("click", async e => {
     if (e.target === ov || e.target.closest("[data-x]")) { ov.remove(); return; }
     const go = e.target.closest("[data-go]"); if (!go) return;
-    const P = plan().filter(x => !x.had); if (!P.length) { toast("Nie ma nic do zadania."); return; }
+    const P = new FormData(form).get("redo") ? plan() : plan().filter(x => !x.had); if (!P.length) { toast("Wszystko z tej serii już było zadane."); return; }
     go.disabled = true; go.textContent = "Zapisuję…";
     try { for (const x of P) { const tt = x.t; if (tt._local) { await B.set("tests", tt.id, tt._pub || pubTest(tt)); tt._local = false; } const id = rid(); const a = { studentId: s.id, testId: tt.id, due: x.due, createdAt: new Date().toISOString() }; if (x.from) a.from = x.from; await B.set("assignments", id, a); S.data.assignments[id] = { id, ...a }; }
       ov.remove(); toast(`Zadano ${P.length} ${plural(P.length, "pozycję", "pozycje", "pozycji")}.`); redraw && redraw(); }
