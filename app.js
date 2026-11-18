@@ -646,12 +646,13 @@ function qHtml(q, n, answers, mode) {
     return `<div class="q"><span class="qn">${q.imgs ? "" : esc(label) + " "}<span class="chip">zadanie otwarte · ${q.pts} pkt</span></span>${imgs}${q.t ? `<div class="qt">${esc(q.t)}</div>` : ""}
     ${(() => { const v = S.view || {}; const r = v.result || {};
       if (mode === "take") return `<p class="small muted">Rozwiąż w zeszycie albo na kartce, zrób zdjęcie i dodaj je tutaj. Rozwiązanie zobaczysz po oddaniu testu.</p>${photoBox(n, (v.photos || {})[n], true)}`;
-      if (mode !== "result") return q.e ? `<div class="expl"><b>Rozwiązanie</b><span>${esc(q.e)}</span></div>` : "";
+      const critH = S.user && S.user.role === "admin" && q.crit && q.crit.length ? `<details class="crit" style="margin-top:8px"><summary class="small" style="cursor:pointer;color:var(--accent);font-weight:600">📋 Klucz CKE – zasady punktowania (widzisz tylko Ty)</summary><div style="display:grid;gap:6px;margin-top:8px">${q.crit.map(u => `<img class="qimg" src="${esc(u)}" alt="Zasady oceniania CKE" loading="lazy" style="background:#fff">`).join("")}</div></details>` : "";
+      if (mode !== "result") return (q.e ? `<div class="expl"><b>Rozwiązanie</b><span>${esc(q.e)}</span></div>` : "") + critH;
       const ph = (r.photos || {})[n]; const g = (r.openPts || {})[n]; const admin = S.user && S.user.role === "admin";
       return `${ph && ph.length ? `<div class="small muted">Zdjęcie rozwiązania:</div>${photoBox(n, ph, false)}` : '<p class="small muted">Brak zdjęcia rozwiązania.</p>'}
       ${admin ? `<label class="f gpts">Punkty za to zadanie<span style="display:flex;gap:8px;align-items:center"><input type="number" min="0" max="${q.pts}" step="0.5" inputmode="decimal" data-gpts="${n}" value="${g ?? ""}" style="width:90px"> <span class="muted">/ ${q.pts} pkt</span></span></label>`
         : `<span class="verdict ${g == null ? "" : g === q.pts ? "ok" : "bad"}">${g == null ? "Czeka na sprawdzenie" : `Ocena: ${g}/${q.pts} pkt`}</span>`}
-      ${q.e ? `<div class="expl"><b>Rozwiązanie</b><span>${esc(q.e)}</span></div>` : ""}`; })()}</div>`;
+      ${q.e ? `<div class="expl"><b>Rozwiązanie</b><span>${esc(q.e)}</span></div>` : ""}${critH}`; })()}</div>`;
   }
   const L = q.L || (q.type === "tf" ? null : "ABCDEFGH".split(""));
   const bare = !q.o && q.type !== "tf";
