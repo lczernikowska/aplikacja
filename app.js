@@ -492,7 +492,7 @@ function previewAs(sid) {
 function endPreview() { const p = S.preview; if (!p) return; S.user = p.user; S.data = p.data; S.tab = p.tab; S.view = p.view; S.preview = null; undoBtn(); render(); }
 const ARCH_DAYS = 14;
 function isArch(a) { return a.archived === true; }
-const isFuture = a => !!(a.from && a.from > today());
+const isFuture = a => false; // uczeń widzi wszystkie zadania od razu (pole "from" ze starszych serii jest ignorowane)
 function renderStudent() {
   if (!S.user.studentId) { root.innerHTML = frame(`<div class="notice bad">Twoje konto nie jest jeszcze przypisane do ucznia. Napisz do swojej korepetytorki.</div>`); return; }
   if (S.view && S.view.type === "test") return renderTest();
@@ -1622,7 +1622,7 @@ function seriesModal(s, redraw) {
   ov.innerHTML = `<div class="modal" role="dialog" aria-label="Seria zadań"><header><h2>Seria – ${esc(s.name)}</h2></header><form class="mb" data-sf>
   ${[["Fiszki", /^f/], ["Czytanki", /^c/], ["Matury (maj–sierpień i próbne CKE, od najstarszej)", /^[ma]P/]].map(([h, re]) => { const gs = G.filter(g => re.test(g.k)); return gs.length ? `<div style="display:grid;gap:6px"><b class="small">${h}</b><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px 14px">${gs.map(g => `<label class="small" style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" name="${g.k}" style="width:18px;height:18px;flex:none;padding:0;accent-color:var(--accent)"><span>${esc(g.l.replace(/^(Fiszki|Czytanki|Matury) – |^Czytanki /, ""))} <span class="muted">(${Object.keys(g.m).length})</span></span></label>`).join("")}</div></div>` : ""; }).join("")}
   <div class="frow"><label class="f">Od nr<input type="number" name="start" min="1" max="${maxN}" value="1"></label><label class="f">Do nr<input type="number" name="end" min="1" max="${maxN}" value="${maxN}"></label><label class="f">Co ile dni<input type="number" name="every" min="1" max="60" value="10"></label><label class="f">Pierwszy termin<input type="date" name="first" value="${addDays(today(), 10)}"></label></div>
-  <p class="small muted" style="margin:0">Pozycje z tym samym numerem (np. fiszki 3 i czytanka 3, albo arkusz i jego słuchanie) mają ten sam termin. Matury idą od najstarszej, razem z próbnymi CKE z grudnia i marca. Każdą kolejną uczeń zobaczy dopiero w dniu terminu poprzedniej, więc lista zadań mu się nie zapcha. To, co już było zadane, jest pomijane bez zostawiania przerw w terminach.</p>
+  <p class="small muted" style="margin:0">Pozycje z tym samym numerem (np. fiszki 3 i czytanka 3, albo arkusz i jego słuchanie) mają ten sam termin. Matury idą od najstarszej, razem z próbnymi CKE z grudnia i marca. Uczeń widzi od razu wszystkie, ułożone po terminach. To, co już było zadane, jest pomijane bez zostawiania przerw w terminach.</p>
   <div data-dupw class="notice warn" hidden></div><label class="small" data-dupopt hidden style="display:flex;gap:6px;align-items:center"><input type="checkbox" name="redo" style="width:18px;height:18px;flex:none;padding:0">zadaj też powtórnie to, co już było zadane</label>
   <div data-prev class="small" style="max-height:220px;overflow:auto;border:1px dashed var(--line);border-radius:10px;padding:8px 10px"></div></form>
   <footer><button class="btn" data-x type="button">Anuluj</button><button class="btn primary" data-go type="button">Zadaj serię</button></footer></div>`;
@@ -1646,7 +1646,7 @@ function seriesModal(s, redraw) {
     const go = e.target.closest("[data-go]"); if (!go) return;
     const P = new FormData(form).get("redo") ? plan() : plan().filter(x => !x.had); if (!P.length) { toast("Wszystko z tej serii już było zadane."); return; }
     go.disabled = true; go.textContent = "Zapisuję…";
-    try { for (const x of P) { const tt = x.t; if (tt._local) { await B.set("tests", tt.id, tt._pub || pubTest(tt)); tt._local = false; } const id = rid(); const a = { studentId: s.id, testId: tt.id, due: x.due, createdAt: new Date().toISOString() }; if (x.from) a.from = x.from; await B.set("assignments", id, a); S.data.assignments[id] = { id, ...a }; }
+    try { for (const x of P) { const tt = x.t; if (tt._local) { await B.set("tests", tt.id, tt._pub || pubTest(tt)); tt._local = false; } const id = rid(); const a = { studentId: s.id, testId: tt.id, due: x.due, createdAt: new Date().toISOString() }; await B.set("assignments", id, a); S.data.assignments[id] = { id, ...a }; }
       ov.remove(); toast(`Zadano ${P.length} ${plural(P.length, "pozycję", "pozycje", "pozycji")}.`); redraw && redraw(); }
     catch (err) { go.disabled = false; go.textContent = "Zadaj serię"; toast("Nie udało się zapisać: " + (err.message || err)); }
   });
