@@ -870,7 +870,9 @@ function appResultFor(sid, testId) {
 function maturaCell(sid, sh, topics) {
   const r1 = appResultFor(sid, sh.id), r2 = sh.listen ? appResultFor(sid, sh.listen) : null;
   if (r1 || r2) { const sc = (r1 ? r1.score : 0) + (r2 ? r2.score : 0), mx = (r1 ? r1.max : 0) + (r2 ? r2.max : 0);
-    return { pct: Math.round(sc / mx * 100), pts: sc, max: mx, app: true, part: sh.listen && !(r1 && r2) ? (r1 ? "bez słuchania" : "tylko słuchanie") : "" }; }
+    const def = (window.PE_ARKUSZE || []).find(x => x.id === sh.id); const nOpen = def ? def.questions.filter(q => q.type === "open").length : 0;
+    const pend = r1 && nOpen ? nOpen - Object.keys(r1.openPts || {}).length : 0;
+    return { pct: Math.round(sc / mx * 100), pts: sc, max: mx, app: true, pend: Math.max(0, pend), part: sh.listen && !(r1 && r2) ? (r1 ? "bez słuchania" : "tylko słuchanie") : "" }; }
   const x = (topics || {})[sh.key]; if (x && typeof x.pct === "number") return { pct: x.pct, pts: x.pts, max: x.max, app: false };
   return null;
 }
@@ -878,7 +880,7 @@ function maturaAvg(cells) { const c = cells.filter(Boolean); return c.length ? M
 function maturaTable(kind, list, progOf, selAct) {
   const sh = maturaSheets(kind); if (!sh.length) return "";
   const rows = list.map(s => { const cells = sh.map(x => maturaCell(s.id, x, (progOf(s.id) || {}).topics)); const av = maturaAvg(cells);
-    return `<tr><td><button class="btn sm ghost" data-act="${selAct}" data-id="${s.id}">${esc(s.name)}</button></td><td>${cells.filter(Boolean).length}/${sh.length}</td><td>${av === null ? "–" : pctChip(av)}</td>${cells.map((c, i) => `<td title="${esc(sh[i].when)}${c ? ` · ${c.pts}/${c.max} pkt${c.part ? " · " + c.part : ""}${c.app ? " · z aplikacji" : " · wpisane"}` : ""}">${c ? pctChip(c.pct) : '<span class="muted">–</span>'}</td>`).join("")}</tr>`; }).join("");
+    return `<tr><td><button class="btn sm ghost" data-act="${selAct}" data-id="${s.id}">${esc(s.name)}</button></td><td>${cells.filter(Boolean).length}/${sh.length}</td><td>${av === null ? "–" : pctChip(av)}</td>${cells.map((c, i) => `<td title="${esc(sh[i].when)}${c ? ` · ${c.pts}/${c.max} pkt${c.part ? " · " + c.part : ""}${c.pend ? ` · ${c.pend} zad. otwartych czeka na ocenę – wynik niepełny` : ""}${c.app ? " · z aplikacji" : " · wpisane"}` : ""}">${c ? pctChip(c.pct) + (c.pend ? ' <span title="czeka na ocenę zadań otwartych">⏳</span>' : "") : '<span class="muted">–</span>'}</td>`).join("")}</tr>`; }).join("");
   return `<section class="panel"><h2>${MATURA_NAME[kind]}</h2><div class="tablewrap"><table class="compact"><thead><tr><th>Uczeń</th><th>Zrobione</th><th>Średnia</th>${sh.map(x => `<th title="${esc(x.when)}">${x.n}<br><span class="small muted" style="font-weight:400">${esc(x.when.replace(/(\S+)\s+20(\d\d)/, (m, a, b) => a.slice(0, 3) + " " + b))}</span></th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div></section>`;
 }
 function maturaRows(kind, sid, topics, attr) {
@@ -886,14 +888,14 @@ function maturaRows(kind, sid, topics, attr) {
   return sh.map(x => { const app = maturaCell(sid, x, {}); const t = (topics || {})[x.key] || {};
     const dflt = typeof t.max === "number" ? t.max : (attr === "m" ? mathMaxDefault(x.key) : null);
     return `<div class="row"><span class="num">${x.n}</span><span class="grow"><b>${maturaLabel(kind, x.n)}</b><span class="small muted">${esc(x.when)}</span></span>
-    ${app ? `<span class="small muted">w aplikacji: ${app.pts}/${app.max} pkt${app.part ? " (" + app.part + ")" : ""}</span>${pctChip(app.pct)}` : `<span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="number" min="0" step="0.5" inputmode="decimal" data-${P[0]}="${x.key}" value="${typeof t.pts === "number" ? t.pts : ""}" placeholder="pkt" style="width:72px" aria-label="Punkty: ${maturaLabel(kind, x.n)}"><span class="muted">na</span><input type="number" min="1" step="0.5" inputmode="decimal" data-${P[1]}="${x.key}" value="${dflt ?? ""}" placeholder="max" style="width:72px" aria-label="Maksimum: matura próbna ${x.n}"><span class="muted small">pkt</span></span>${pctChip(t.pct)}`}</div>`; }).join("");
+    ${app ? `<span class="small muted">w aplikacji: ${app.pts}/${app.max} pkt${app.part ? " (" + app.part + ")" : ""}${app.pend ? ` · ⏳ ${app.pend} zad. otwartych do oceny` : ""}</span>${pctChip(app.pct)}` : `<span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="number" min="0" step="0.5" inputmode="decimal" data-${P[0]}="${x.key}" value="${typeof t.pts === "number" ? t.pts : ""}" placeholder="pkt" style="width:72px" aria-label="Punkty: ${maturaLabel(kind, x.n)}"><span class="muted">na</span><input type="number" min="1" step="0.5" inputmode="decimal" data-${P[1]}="${x.key}" value="${dflt ?? ""}" placeholder="max" style="width:72px" aria-label="Maksimum: matura próbna ${x.n}"><span class="muted small">pkt</span></span>${pctChip(t.pct)}`}</div>`; }).join("");
 }
 function studentMatury() {
   const me = S.data.me || {}; const out = [];
   for (const kind of ["mat", "cmat", "pp", "cpp", "pr", "cpr"]) {
     const topics = ((/mat$/.test(kind) ? S.data.mathP : S.data.engP) || {}).topics || {};
     const done = maturaSheets(kind).map(x => [x, maturaCell(me.id || S.user.studentId, x, topics)]).filter(([, c]) => c);
-    if (done.length) out.push(`<h3 style="margin:10px 0 4px">${{ mat: "Matematyka", pp: "Angielski – poziom podstawowy", pr: "Angielski – poziom rozszerzony", cmat: "Matematyka – próbne CKE", cpp: "Angielski PP – próbne CKE", cpr: "Angielski PR – próbne CKE" }[kind]} <span class="small muted">· średnia ${maturaAvg(done.map(d => d[1]))}%</span></h3><div class="tablewrap"><table><thead><tr><th>Arkusz</th><th>Punkty</th><th>Wynik</th></tr></thead><tbody>${done.map(([x, c]) => `<tr><td>${maturaLabel(kind, x.n)}</td><td>${c.pts}/${c.max}</td><td>${pctChip(c.pct)}</td></tr>`).join("")}</tbody></table></div>`);
+    if (done.length) out.push(`<h3 style="margin:10px 0 4px">${{ mat: "Matematyka", pp: "Angielski – poziom podstawowy", pr: "Angielski – poziom rozszerzony", cmat: "Matematyka – próbne CKE", cpp: "Angielski PP – próbne CKE", cpr: "Angielski PR – próbne CKE" }[kind]} <span class="small muted">· średnia ${maturaAvg(done.map(d => d[1]))}%</span></h3><div class="tablewrap"><table><thead><tr><th>Arkusz</th><th>Punkty</th><th>Wynik</th></tr></thead><tbody>${done.map(([x, c]) => `<tr><td>${maturaLabel(kind, x.n)}</td><td>${c.pts}/${c.max}${c.pend ? ' <span class="small muted">· czeka na ocenę zadań otwartych</span>' : ""}</td><td>${pctChip(c.pct)}</td></tr>`).join("")}</tbody></table></div>`);
   }
   return out.length ? `<section class="panel"><h2>Matury próbne – Twoje wyniki</h2>${out.join("")}</section>` : "";
 }
