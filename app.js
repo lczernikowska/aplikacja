@@ -483,10 +483,11 @@ function previewAs(sid) {
 function endPreview() { const p = S.preview; if (!p) return; S.user = p.user; S.data = p.data; S.tab = p.tab; S.view = p.view; S.preview = null; undoBtn(); render(); }
 const ARCH_DAYS = 14;
 function isArch(a) { return a.archived === true; }
+const isFuture = a => !!(a.from && a.from > today());
 function renderStudent() {
   if (!S.user.studentId) { root.innerHTML = frame(`<div class="notice bad">Twoje konto nie jest jeszcze przypisane do ucznia. Napisz do swojej korepetytorki.</div>`); return; }
   if (S.view && S.view.type === "test") return renderTest();
-  const as = Object.values(S.data.assignments).sort((a, b) => (a.due || "").localeCompare(b.due || ""));
+  const as = Object.values(S.data.assignments).filter(a => !isFuture(a)).sort((a, b) => (a.due || "").localeCompare(b.due || ""));
   const arch = as.filter(isArch).reverse(); const live = as.filter(a => !isArch(a));
   const todo = live.filter(a => !resultFor(a.id)).sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999")), done = live.filter(a => resultFor(a.id)).reverse();
   const card = a => { const t = S.data.tests[a.testId]; const r = resultFor(a.id); const late = !r && a.due && a.due < today();
@@ -1426,7 +1427,7 @@ function renderUczniowie() {
 }
 function reminderText(s) {
   const t = today(), ddmm = d => d.slice(8, 10) + "." + d.slice(5, 7);
-  const todo = Object.values(S.data.assignments).filter(a => a.studentId === s.id && !S.data.results[a.id] && !isArch(a));
+  const todo = Object.values(S.data.assignments).filter(a => a.studentId === s.id && !S.data.results[a.id] && !isArch(a) && !isFuture(a));
   if (!todo.length) return "";
   const cnt = n => `${n} ${plural(n, "zadanie", "zadania", "zadań")}`;
   const join = xs => xs.length < 2 ? xs.join("") : xs.slice(0, -1).join(", ") + " i " + xs[xs.length - 1];
@@ -1452,8 +1453,8 @@ function studentModal(s) {
     const tabsH = [["zad", "Zadania"], ["lek", "Lekcje"], ["wpl", "Płatności"], ["dane", "Dane"]].map(([k, l]) => `<button type="button" data-msec="${k}" aria-selected="${sec === k}">${l}</button>`).join("");
     let inner = "";
     if (sec === "zad") inner = `<form class="panel" style="padding:14px 16px;display:grid;gap:12px" id="stAssign"><h3>Zadaj zadanie</h3>${assignFormHtml(s.id)}</form>
-    <section><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Zadania ucznia</h3><button type="button" class="btn sm" data-remind>💬 Przypomnienie o zadaniach</button></div>${(ROWS = [...as, ...asArch].map(a => { const r = S.data.results[a.id];
-      return `<div class="row"><span class="grow"><b>${esc(taskTitle(a))}</b><span class="small muted">${kindLabel(a)}${a.due ? " · termin: " + fmtDate(a.due) : ""}</span></span>${r ? (ownKind(a) ? `<span class="chip ok">zrobione${r.by === "student" ? " (uczeń)" : ""}</span><button class="btn sm ghost" type="button" data-mact="undone" data-id="${a.id}" title="Cofnij odhaczenie">↺</button>` : `<span class="chip ${pct(r.score, r.max) >= 70 ? "ok" : pct(r.score, r.max) >= 50 ? "warn" : "bad"}">${r.score}/${r.max}</span>`) : (ownKind(a) ? `<button class="btn sm" type="button" data-mact="done" data-id="${a.id}">Odhacz</button>` : '<span class="chip">czeka</span>')}${r ? "" : `<input type="date" value="${esc(a.due || "")}" data-mdue="${a.id}" aria-label="Termin" style="width:auto;padding:5px 8px;font-size:13px"><button class="btn sm ghost" type="button" data-mact="del" data-id="${a.id}">usuń</button>`}</div>`; }), "")}${as.length ? `<div class="list">${ROWS.slice(0, as.length).join("")}</div>` : `<p class="empty">${asArch.length ? "Brak aktualnych zadań." : "Nic jeszcze nie zadano."}</p>`}${asArch.length ? `<details style="margin-top:12px"><summary class="small" style="cursor:pointer">Archiwum (${asArch.length})</summary><div class="list" style="margin-top:8px">${ROWS.slice(as.length).join("")}</div></details>` : ""}</section>`;
+    <section><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Zadania ucznia</h3><span style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="btn sm" data-series>🗂 Seria fiszek</button><button type="button" class="btn sm" data-remind>💬 Przypomnienie o zadaniach</button></span></div>${(ROWS = [...as, ...asArch].map(a => { const r = S.data.results[a.id];
+      return `<div class="row"><span class="grow"><b>${esc(taskTitle(a))}</b><span class="small muted">${kindLabel(a)}${a.due ? " · termin: " + fmtDate(a.due) : ""}${isFuture(a) ? " · uczeń zobaczy od " + fmtDate(a.from) : ""}</span></span>${r ? (ownKind(a) ? `<span class="chip ok">zrobione${r.by === "student" ? " (uczeń)" : ""}</span><button class="btn sm ghost" type="button" data-mact="undone" data-id="${a.id}" title="Cofnij odhaczenie">↺</button>` : `<span class="chip ${pct(r.score, r.max) >= 70 ? "ok" : pct(r.score, r.max) >= 50 ? "warn" : "bad"}">${r.score}/${r.max}</span>`) : (ownKind(a) ? `<button class="btn sm" type="button" data-mact="done" data-id="${a.id}">Odhacz</button>` : '<span class="chip">czeka</span>')}${r ? "" : `<input type="date" value="${esc(a.due || "")}" data-mdue="${a.id}" aria-label="Termin" style="width:auto;padding:5px 8px;font-size:13px"><button class="btn sm ghost" type="button" data-mact="del" data-id="${a.id}">usuń</button>`}</div>`; }), "")}${as.length ? `<div class="list">${ROWS.slice(0, as.length).join("")}</div>` : `<p class="empty">${asArch.length ? "Brak aktualnych zadań." : "Nic jeszcze nie zadano."}</p>`}${asArch.length ? `<details style="margin-top:12px"><summary class="small" style="cursor:pointer">Archiwum (${asArch.length})</summary><div class="list" style="margin-top:8px">${ROWS.slice(as.length).join("")}</div></details>` : ""}</section>`;
     else if (sec === "lek") inner = `<div class="acts"><button class="btn sm primary" type="button" data-mact="newLesson">+ Lekcja</button></div>
     <section><h3>Najbliższe</h3>${up.length ? `<div class="list">${up.map(l => lessonRow(l, { showDate: true, showName: false })).join("")}</div>` : emptyP("Brak zaplanowanych lekcji.")}</section>
     <section><h3>Historia</h3>${past.length ? `<div class="list">${past.map(l => lessonRow(l, { showDate: true, showName: false })).join("")}</div>` : emptyP("Jeszcze nic.")}</section>`;
@@ -1475,6 +1476,7 @@ function studentModal(s) {
   ov.addEventListener("change", e => { const d = e.target.closest("[data-mdue]"); if (d) saveDue(d, false); });
   ov.addEventListener("focusout", e => { const d = e.target.closest("[data-mdue]"); if (d) saveDue(d, true); });
   ov.addEventListener("click", async e => {
+    if (e.target.closest("[data-series]")) { seriesModal(s, draw); return; }
     if (e.target.closest("[data-remind]")) { const txt = reminderText(s); if (!txt) { toast("Uczeń nie ma zadań do zrobienia."); return; } msgModal(txt, "Przypomnienie: " + s.name); return; }
     if (e.target === ov || e.target.closest("[data-x]")) { ov.remove(); render(); return; }
     const sb = e.target.closest("[data-msec]"); if (sb) { S.stSec = sb.dataset.msec; draw(); return; }
@@ -1588,6 +1590,32 @@ function renderZgory() {
   return `<p><button class="btn sm ghost" data-act="tab" data-k="platnosci">← Płatności</button></p><div class="head"><div><p class="eyebrow">Rozliczenie z góry</p><h1>${esc(monthLabel(ym))}</h1></div><div class="acts"><div class="seg" role="group" aria-label="Wiadomość do"><button data-act="upTo" data-v="rodzic" aria-pressed="${S.upTo !== "uczen"}">Do rodzica</button><button data-act="upTo" data-v="uczen" aria-pressed="${S.upTo === "uczen"}">Do ucznia</button></div><button class="btn sm" data-act="upMove" data-d="-1" aria-label="Poprzedni miesiąc">‹</button><select id="upmonth" style="width:auto">${months.map(k => `<option value="${k}" ${k === ym ? "selected" : ""}>${esc(monthLabel(k))}</option>`).join("")}</select><button class="btn sm" data-act="upMove" data-d="1" aria-label="Następny miesiąc">›</button></div></div>
   <div class="stats"><div class="stat"><span class="small muted">Razem do zebrania</span><b>${zl(total)}</b><span class="small muted">${rows.filter(r => r.pay > 0).length} ${plural(rows.filter(r => r.pay > 0).length, "uczeń", "uczniów", "uczniów")}</span></div><div class="stat"><span class="small muted">Zaplanowane lekcje w miesiącu</span><b>${rows.reduce((s, r) => s + r.inM.length, 0)}</b><span class="small muted">bez odwołanych</span></div></div>
   ${panel("Ile komu policzyć", rows.length ? `<div class="tablewrap"><table><thead><tr><th>Uczeń</th><th>Lekcje</th><th>Za miesiąc</th><th>Saldo</th><th>Do zapłaty</th><th></th></tr></thead><tbody>${rows.map(r => `<tr><td><button class="link" type="button" data-act="stOpen" data-id="${r.id}">${esc(r.s.name)}</button></td><td style="white-space:normal">${r.bySubj.map(g => `<div>${r.bySubj.length > 1 ? esc(SUBJ[g.subject]) + ": " : ""}${g.ls.length} <span class="small muted">(${g.ls.map(l => parseD(l.date).getDate()).join(", ")})</span></div>`).join("") || "0"}</td><td>${zl(r.monthSum)}</td><td>${adjCell(r.adj)}</td><td><b>${r.pay > 0 ? zl(r.pay) : "0 zł"}</b></td><td><div class="acts" style="flex-wrap:nowrap"><button class="btn sm" data-act="copyMsg" data-id="${r.id}">Wiadomość</button>${r.pay > 0 ? `<button class="btn sm ghost" data-act="newPayment" data-sid="${r.id}" data-amt="${r.pay}" data-note="za ${esc(monthLabel(ym))}">+ Wpłata</button>` : ""}</div></td></tr>`).join("")}</tbody></table></div>` : emptyP(`Brak zaplanowanych lekcji na ${esc(monthLabel(ym))}.`), "Za miesiąc to wszystkie zaplanowane lekcje w tym miesiącu po ich cenie. Saldo dolicza zaległości i odejmuje nadpłaty. Odwołana albo przełożona lekcja sama zmniejszy kwotę.")}`;
+}
+function seriesModal(s, redraw) {
+  const decks = lv => Object.values(S.data.tests).filter(t => t.kind === "fiszki" && t.level === lv && /^ang-fiszki-p[pr]-\d+$/.test(t.id)).sort((a, b) => a.id.localeCompare(b.id));
+  const ov = document.createElement("div"); ov.className = "ov";
+  ov.innerHTML = `<div class="modal" role="dialog" aria-label="Seria fiszek"><header><h2>Seria fiszek – ${esc(s.name)}</h2></header><form style="display:grid;gap:12px" data-sf>
+  <div style="display:flex;gap:16px;flex-wrap:wrap"><label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" name="pp" checked>podstawa</label><label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" name="pr" checked>rozszerzenie</label></div>
+  <div class="frow"><label class="f">Od zestawu nr<input type="number" name="start" min="1" max="14" value="1"></label><label class="f">Do zestawu nr<input type="number" name="end" min="1" max="14" value="14"></label><label class="f">Co ile dni<input type="number" name="every" min="1" max="60" value="10"></label><label class="f">Pierwszy termin<input type="date" name="first" value="${addDays(today(), 10)}"></label></div>
+  <p class="small muted" style="margin:0">Każdy kolejny zestaw uczeń zobaczy dopiero po terminie poprzedniego, więc lista zadań mu się nie zapcha. Zestawy z tym samym numerem (podstawa i rozszerzenie) mają ten sam termin.</p>
+  <div data-prev class="small" style="max-height:220px;overflow:auto;border:1px dashed var(--line);border-radius:10px;padding:8px 10px"></div></form>
+  <footer><button class="btn" data-x type="button">Anuluj</button><button class="btn primary" data-go type="button">Zadaj serię</button></footer></div>`;
+  document.body.appendChild(ov);
+  const form = ov.querySelector("[data-sf]");
+  const plan = () => { const f = new FormData(form); const lv = [f.get("pp") && "PP", f.get("pr") && "PR"].filter(Boolean); const st = +f.get("start") || 1, en = +f.get("end") || 14, ev = +f.get("every") || 10, first = f.get("first") || today(); const out = [];
+    for (let n = st; n <= en; n++) { const due = addDays(first, (n - st) * ev), from = n === st ? "" : addDays(first, (n - st - 1) * ev);
+      for (const L of lv) { const t = decks(L)[n - 1]; if (!t) continue; const had = Object.values(S.data.assignments).some(a => a.studentId === s.id && a.testId === t.id); out.push({ t, due, from, had }); } } return out; };
+  const prev = () => { const P = plan(); ov.querySelector("[data-prev]").innerHTML = P.length ? P.map(x => `<div>${fmtDate(x.due)} – ${esc(x.t.title)}${x.had ? ' <span class="chip warn">już zadane – pominę</span>' : ""}</div>`).join("") : "Wybierz podstawę lub rozszerzenie."; };
+  form.addEventListener("input", prev); prev();
+  ov.addEventListener("click", async e => {
+    if (e.target === ov || e.target.closest("[data-x]")) { ov.remove(); return; }
+    const go = e.target.closest("[data-go]"); if (!go) return;
+    const P = plan().filter(x => !x.had); if (!P.length) { toast("Nie ma nic do zadania."); return; }
+    go.disabled = true; go.textContent = "Zapisuję…";
+    try { for (const x of P) { const tt = x.t; if (tt._local) { await B.set("tests", tt.id, tt._pub || pubTest(tt)); tt._local = false; } const id = rid(); const a = { studentId: s.id, testId: tt.id, due: x.due, createdAt: new Date().toISOString() }; if (x.from) a.from = x.from; await B.set("assignments", id, a); S.data.assignments[id] = { id, ...a }; }
+      ov.remove(); toast(`Zadano ${P.length} ${plural(P.length, "zestaw", "zestawy", "zestawów")} fiszek.`); redraw && redraw(); }
+    catch (err) { go.disabled = false; go.textContent = "Zadaj serię"; toast("Nie udało się zapisać: " + (err.message || err)); }
+  });
 }
 function msgModal(text, title) {
   openModal({ title, body: `<textarea rows="14" readonly style="font-size:14px">${esc(text)}</textarea>`, foot: `<button type="button" class="btn primary" data-copy>Kopiuj</button>`, onMount: f => f.querySelector("[data-copy]").addEventListener("click", () => { (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(() => toast("Skopiowano – wklej w Messengerze albo SMS-ie"), () => { f.querySelector("textarea").select(); toast("Zaznaczone – skopiuj Ctrl+C"); }); }) });
