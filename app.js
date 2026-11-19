@@ -875,28 +875,37 @@ function maturaSheets(kind) {
     return { id: t.id, n: i + 1, key: MATURA_KEY[kind] + pad(i + 1), when: m ? m[1] : "", listen: !/mat$/.test(kind) && (window.PE_ARKUSZE || []).some(x => x.id === t.id + "-s") ? t.id + "-s" : null }; });
 }
 function appResultFor(sid, testId) {
+  // ostatnie pełne podejście (nowe zadanie z całym testem nadpisuje starsze); „poprawa błędnych” się nie liczy – bierzemy wynik pierwszej wersji
   let best = null;
   for (const a of Object.values(S.data.assignments || {})) {
     if (a.testId !== testId || (a.studentId && a.studentId !== sid) || a.only) continue;
-    const r = S.data.results[a.id]; if (r && typeof r.score === "number" && r.max) { if (!best || String(r.doneAt || r.date || "") > String(best.doneAt || best.date || "")) best = r; }
+    const r = S.data.results[a.id]; if (r && typeof r.score === "number" && r.max) { if (!best || String(r.submittedAt || r.doneAt || "") > String(best.submittedAt || best.doneAt || "")) best = r; }
   }
-  return best;
+  if (!best) return null;
+  return best.firstScore != null && best.firstMax ? { ...best, score: best.firstScore, max: best.firstMax, corrected: { score: best.score, max: best.max } } : best;
 }
 function maturaCell(sid, sh, topics) {
   const r1 = appResultFor(sid, sh.id), r2 = sh.listen ? appResultFor(sid, sh.listen) : null;
   if (r1 || r2) { const sc = (r1 ? r1.score : 0) + (r2 ? r2.score : 0), mx = (r1 ? r1.max : 0) + (r2 ? r2.max : 0);
     const def = (window.PE_ARKUSZE || []).find(x => x.id === sh.id); const nOpen = def ? def.questions.filter(q => q.type === "open" && !q.removed).length : 0;
     const pend = r1 && nOpen ? nOpen - Object.keys(r1.openPts || {}).filter(k => !(def.questions[k] || {}).removed).length : 0;
-    return { pct: Math.round(sc / mx * 100), pts: sc, max: mx, app: true, pend: Math.max(0, pend), part: sh.listen && !(r1 && r2) ? (r1 ? "bez słuchania" : "tylko słuchanie") : "" }; }
+    const one = r => r ? { pct: Math.round(r.score / r.max * 100), pts: r.score, max: r.max, app: true } : null;
+    return { pct: Math.round(sc / mx * 100), pts: sc, max: mx, app: true, pend: Math.max(0, pend), part: sh.listen && !(r1 && r2) ? (r1 ? "bez słuchania" : "tylko słuchanie") : "", zad: one(r1) && { ...one(r1), pend: Math.max(0, pend) }, sl: one(r2), fix: (r1 && r1.corrected) || null }; }
   const x = (topics || {})[sh.key]; if (x && typeof x.pct === "number") return { pct: x.pct, pts: x.pts, max: x.max, app: false };
   return null;
 }
 function maturaAvg(cells) { const c = cells.filter(Boolean); return c.length ? Math.round(c.reduce((a, x) => a + x.pct, 0) / c.length) : null; }
 function maturaTable(kind, list, progOf, selAct) {
   const sh = maturaSheets(kind); if (!sh.length) return "";
-  const rows = list.map(s => { const cells = sh.map(x => maturaCell(s.id, x, (progOf(s.id) || {}).topics)); const av = maturaAvg(cells);
-    return `<tr><td><button class="btn sm ghost" data-act="${selAct}" data-id="${s.id}">${esc(s.name)}</button></td><td>${cells.filter(Boolean).length}/${sh.length}</td><td>${av === null ? "–" : pctChip(av)}</td>${cells.map((c, i) => `<td title="${esc(sh[i].when)}${c ? ` · ${c.pts}/${c.max} pkt${c.part ? " · " + c.part : ""}${c.pend ? ` · ${c.pend} zad. otwartych czeka na ocenę – wynik niepełny` : ""}${c.app ? " · z aplikacji" : " · wpisane"}` : ""}">${c ? pctChip(c.pct) + (c.pend ? ' <span title="czeka na ocenę zadań otwartych">⏳</span>' : "") : '<span class="muted">–</span>'}</td>`).join("")}</tr>`; }).join("");
-  return `<section class="panel"><h2>${MATURA_NAME[kind]}</h2><div class="tablewrap"><table class="compact"><thead><tr><th>Uczeń</th><th>Zrobione</th><th>Średnia</th>${sh.map(x => `<th title="${esc(x.when)}">${x.n}<br><span class="small muted" style="font-weight:400">${esc(x.when.replace(/(\S+)\s+20(\d\d)/, (m, a, b) => a.slice(0, 3) + " " + b))}</span></th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div></section>`;
+  const eng = !/mat$/.test(kind);
+  const td = (c, i) => `<td title="${esc(sh[i].when)}${c ? ` · ${c.pts}/${c.max} pkt${c.part ? " · " + c.part : ""}${c.pend ? ` · ${c.pend} zad. otwartych czeka na ocenę – wynik niepełny` : ""}${c.fix ? ` · pierwsza wersja (po poprawie: ${c.fix.score}/${c.fix.max})` : ""}${c.app ? " · z aplikacji" : " · wpisane"}` : ""}">${c ? pctChip(c.pct) + (c.pend ? ' <span title="czeka na ocenę zadań otwartych">⏳</span>' : "") : '<span class="muted">–</span>'}</td>`;
+  const line = (first, label, cells, strong) => { const av = maturaAvg(cells); return `<tr${strong ? ' style="font-weight:600"' : ""}>${first}${eng ? `<td class="small">${label}</td>` : ""}<td>${cells.filter(Boolean).length}/${sh.length}</td><td>${av === null ? "–" : pctChip(av)}</td>${cells.map(td).join("")}</tr>`; };
+  const rows = list.map(s => { const cells = sh.map(x => maturaCell(s.id, x, (progOf(s.id) || {}).topics)); const nm = `<button class="btn sm ghost" data-act="${selAct}" data-id="${s.id}">${esc(s.name)}</button>`;
+    if (!eng) return line(`<td>${nm}</td>`, "", cells);
+    return line(`<td rowspan="3" style="vertical-align:top">${nm}</td>`, "zadania", cells.map(c => c ? (c.app ? c.zad : null) : null))
+      + line("", "słuchanie", cells.map(c => c ? (c.app ? c.sl : null) : null))
+      + line("", "razem", cells, true); }).join("");
+  return `<section class="panel"><h2>${MATURA_NAME[kind]}</h2><p class="small muted">${eng ? "Dla każdego ucznia: wynik z zadań (bez słuchania), ze słuchania i razem; wynik wpisany ręcznie widać tylko w „razem”. " : ""}Liczy się pierwsza wersja – „poprawa błędnych” nie zmienia wyniku. Jeśli zadasz cały arkusz jeszcze raz, w tabeli pojawi się nowszy wynik.</p><div class="tablewrap"><table class="compact"><thead><tr><th>Uczeń</th>${eng ? "<th>Część</th>" : ""}<th>Zrobione</th><th>Średnia</th>${sh.map(x => `<th title="${esc(x.when)}">${x.n}<br><span class="small muted" style="font-weight:400">${esc(x.when.replace(/(\S+)\s+20(\d\d)/, (m, a, b) => a.slice(0, 3) + " " + b))}</span></th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div></section>`;
 }
 function maturaRows(kind, sid, topics, attr) {
   const sh = maturaSheets(kind); const P = attr === "m" ? ["mpts", "mmax"] : ["epts", "emax"];
@@ -932,7 +941,7 @@ function renderMatematyka() {
   if (S.selM === "__all") {
     const rows = list.map(s => { const t = (S.data.mathProgress[s.id] || {}).topics || {}; const st = mathStats(s.id);
       return `<tr><td><button class="btn sm ghost" data-act="selM" data-id="${s.id}">${esc(s.name)}</button></td><td>${st.done}/${MATH_TOPICS.length}</td><td>${st.avg === null ? "–" : pctChip(st.avg)}</td>${MATH_TOPICS.map((_, i) => { const x = t[tkey(i)]; return `<td>${x && x.done ? (typeof x.pct === "number" ? pctChip(x.pct) : '<span class="chip ok">✓</span>') : '<span class="muted">–</span>'}</td>`; }).join("")}</tr>`; }).join("");
-    return head + pills + `<section class="panel"><p class="small muted">Kliknij imię, żeby wpisać wyniki. Po najechaniu na skrót zobaczysz pełną nazwę działu. Zielone ≥ 70%, żółte 50–69%, czerwone &lt; 50%.</p><div class="tablewrap"><table class="compact"><thead><tr><th>Uczeń</th><th>Działy</th><th>Średnia</th>${MATH_TOPICS.map((n, i) => `<th title="${i + 1}. ${esc(n)}">${esc(MATH_SHORT[i])}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div></section>` + `<section class="panel">${others.length ? addForm : ""}</section>`;
+    return head + pills + `<section class="panel"><p class="small muted">Kliknij imię, żeby wpisać wyniki. Po najechaniu na skrót zobaczysz pełną nazwę działu. Zielone ≥ 70%, żółte 50–69%, czerwone &lt; 50%.</p><div class="tablewrap"><table class="compact"><thead><tr><th>Uczeń</th><th>Działy</th><th>Średnia</th>${MATH_TOPICS.map((n, i) => `<th title="${i + 1}. ${esc(n)}">${esc(MATH_SHORT[i])}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div></section>` + maturaTable("mat", list, id => S.data.mathProgress[id], "selM") + maturaTable("cmat", list, id => S.data.mathProgress[id], "selM") + `<section class="panel">${others.length ? addForm : ""}</section>`;
   }
   if (S.selM === "__mat") return head + pills + `<section class="panel"><p class="small muted">Wyniki z aplikacji wpisują się same. Arkusz robiony na papierze wpisz u konkretnego ucznia (kliknij imię). Po najechaniu na wynik zobaczysz punkty i datę arkusza. Zielone ≥ 70%, żółte 50–69%, czerwone &lt; 50%.</p></section>` + maturaTable("mat", list, id => S.data.mathProgress[id], "selM") + maturaTable("cmat", list, id => S.data.mathProgress[id], "selM");
   const s = S.data.students[S.selM]; const t = (S.data.mathProgress[s.id] || {}).topics || {}; const st = mathStats(s.id);
