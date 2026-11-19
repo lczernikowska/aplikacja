@@ -901,9 +901,12 @@ function maturaTable(kind, list, progOf, selAct) {
 function maturaRows(kind, sid, topics, attr) {
   const sh = maturaSheets(kind); const P = attr === "m" ? ["mpts", "mmax"] : ["epts", "emax"];
   return sh.map(x => { const app = maturaCell(sid, x, {}); const t = (topics || {})[x.key] || {};
-    const dflt = typeof t.max === "number" ? t.max : (attr === "m" ? mathMaxDefault(x.key) : null);
-    return `<div class="row"><span class="num">${x.n}</span><span class="grow"><b>${maturaLabel(kind, x.n)}</b><span class="small muted">${esc(x.when)}</span></span>
-    ${app ? `<span class="small muted">w aplikacji: ${app.pts}/${app.max} pkt${app.part ? " (" + app.part + ")" : ""}${app.pend ? ` · ⏳ ${app.pend} zad. otwartych do oceny` : ""}</span>${pctChip(app.pct)}` : `<span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="number" min="0" step="0.5" inputmode="decimal" data-${P[0]}="${x.key}" value="${typeof t.pts === "number" ? t.pts : ""}" placeholder="pkt" style="width:72px" aria-label="Punkty: ${maturaLabel(kind, x.n)}"><span class="muted">na</span><input type="number" min="1" step="0.5" inputmode="decimal" data-${P[1]}="${x.key}" value="${dflt ?? ""}" placeholder="max" style="width:72px" aria-label="Maksimum: matura próbna ${x.n}"><span class="muted small">pkt</span></span>${pctChip(t.pct)}`}</div>`; }).join("");
+    const def = (window.PE_ARKUSZE || []).find(y => y.id === x.id); const rm = def ? def.questions.filter(q => q.removed).map(q => q.label.replace(/^Zadanie\s*/, "").replace(/\.$/, "")) : [];
+    const newMax = rm.length ? maxTest(def) + openMax(def) : null;
+    const dflt = typeof t.max === "number" ? t.max : (newMax || (attr === "m" ? mathMaxDefault(x.key) : null));
+    const rmNote = rm.length && !app ? `<span class="small" style="flex-basis:100%;color:var(--warn,#b45309)">Bez zadań ${esc([...new Set(rm)].join(", "))} (poza wymaganiami od 2025) – licz na ${newMax} pkt${typeof t.max === "number" && t.max !== newMax ? `, teraz wpisane na ${t.max}` : ""}.</span>` : "";
+    return `<div class="row" style="flex-wrap:wrap"><span class="num">${x.n}</span><span class="grow"><b>${maturaLabel(kind, x.n)}</b><span class="small muted">${esc(x.when)}</span></span>
+    ${app ? `<span class="small muted">w aplikacji: ${app.pts}/${app.max} pkt${app.part ? " (" + app.part + ")" : ""}${app.pend ? ` · ⏳ ${app.pend} zad. otwartych do oceny` : ""}</span>${pctChip(app.pct)}` : `<span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="number" min="0" step="0.5" inputmode="decimal" data-${P[0]}="${x.key}" value="${typeof t.pts === "number" ? t.pts : ""}" placeholder="pkt" style="width:72px" aria-label="Punkty: ${maturaLabel(kind, x.n)}"><span class="muted">na</span><input type="number" min="1" step="0.5" inputmode="decimal" data-${P[1]}="${x.key}" value="${dflt ?? ""}" placeholder="max" style="width:72px" aria-label="Maksimum: matura próbna ${x.n}"><span class="muted small">pkt</span></span>${pctChip(t.pct)}`}${rmNote}</div>`; }).join("");
 }
 function studentMatury() {
   const me = S.data.me || {}; const out = [];
