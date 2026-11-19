@@ -1475,6 +1475,8 @@ function reminderText(s) {
 
 function studentModal(s) {
   const ov = document.createElement("div"); ov.className = "ov";
+  S.openStudent = s.id; saveState();
+  const mo = new MutationObserver(() => { if (!ov.isConnected) { mo.disconnect(); if (S.openStudent === s.id) { S.openStudent = null; saveState(); } } }); setTimeout(() => mo.observe(document.body, { childList: true, subtree: true }), 0);
   const draw = () => {
     s = S.data.students[s.id] || s;
     const t = today(); const ls = lessonsArr().filter(l => l.studentId === s.id).sort(byDT);
@@ -1722,8 +1724,49 @@ async function korepAct(act, el) {
 
 /* ---------------- render ---------------- */
 /* zapamiętanie miejsca w adresie strony – po odświeżeniu wraca tam, gdzie byłaś */
+/* Po odświeżeniu: wróć do tej samej zakładki, otwartego testu/wyniku, karty ucznia i miejsca na stronie. */
+let LOC_DONE = false;
+const SS = { get(k) { try { return JSON.parse(sessionStorage.getItem(k) || "null"); } catch (e) { return null; } }, set(k, v) { try { sessionStorage.setItem(k, JSON.stringify(v)); } catch (e) { } } };
+function viewDesc() {
+  const v = S.view; if (!v) return null;
+  if (v.type === "mat") return { k: "m", id: v.id, from: v.from };
+  if (v.type === "test" && v.assignment && v.mode === "result" && v.who) return { k: "r", id: v.assignment.id };
+  if (v.type === "test" && v.assignment) return { k: "a", id: v.assignment.id };
+  if (v.type === "test" && v.mode === "key" && v.test) return { k: "t", id: v.test.id };
+  return null;
+}
+function openView(d) {
+  if (!d || !S.data) return false;
+  if (d.k === "m" && S.data.materials && S.data.materials[d.id]) { S.view = { type: "mat", id: d.id, showKey: false, from: d.from || S.tab }; return true; }
+  if (d.k === "t" && S.data.tests[d.id]) { const t = S.data.tests[d.id]; S.view = { type: "test", mode: "key", test: { id: d.id, ...t }, answers: Object.fromEntries(t.questions.map((q, n) => [n, q.c])) }; return true; }
+  const a = S.data.assignments[d.id]; if (!a) return false; const t = testForAssign(a); if (!t) return false; const r = S.data.results[a.id];
+  if (d.k === "r" && r) { const st = (S.data.students || {})[a.studentId]; S.view = { type: "test", mode: "result", test: t, assignment: a, answers: r.answers || {}, result: r, who: (st ? st.name : "") + " · oddane " + new Date(r.submittedAt).toLocaleDateString("pl-PL") }; return true; }
+  if (r) { S.view = { type: "test", mode: "result", test: t, assignment: a, answers: r.answers || {}, result: r }; return true; }
+  const dr = draftLoad(a.id); S.view = { type: "test", mode: "take", test: t, assignment: a, answers: dr.answers, draftAt: dr.at };
+  IDB.get("draftph:" + a.id).then(ph => { if (ph && S.view && S.view.assignment === a && S.view.mode === "take" && !S.view.photos) { S.view.photos = ph; const y = window.scrollY; renderTest(); window.scrollTo(0, y); } });
+  return true;
+}
+function restoreLoc() {
+  if (LOC_DONE || !S.data) return; LOC_DONE = true;
+  const st = SS.get("pe_loc") || {};
+  if (S.user.role === "admin") loadLoc();
+  if (st.uid === S.user.uid) { if (st.view) openView(st.view); S.reopenStudent = st.modal || null; S.restoreAt = st.at || null; }
+}
+function afterRestoreRender() {
+  if (S.reopenStudent && S.user.role === "admin" && S.data.students[S.reopenStudent]) { const sid = S.reopenStudent; S.reopenStudent = null; studentModal(S.data.students[sid]); }
+  if (S.restoreAt) { const at = S.restoreAt; S.restoreAt = null; let user = false; const stop = () => { user = true; };
+    ["wheel", "touchstart", "keydown", "mousedown"].forEach(ev => window.addEventListener(ev, stop, { once: true, passive: true }));
+    const go = () => { if (user) return; const el = anchors()[at.i]; if (el) window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - at.off); };
+    [0, 150, 500, 1200, 2500].forEach(ms => setTimeout(go, ms)); }
+}
+const anchors = () => [...document.querySelectorAll("#app .q, #app .panel, #app .row, #app tr, #app h2, #app h1")];
+function anchorNow() { const L = anchors(); for (let i = 0; i < L.length; i++) { const r = L[i].getBoundingClientRect(); if (r.bottom > 60) return { i, off: Math.round(r.top) }; } return null; }
+function saveState() { if (!LOC_DONE || !S.user) return; SS.set("pe_loc", { uid: S.user.uid, view: viewDesc(), modal: S.openStudent || null, at: window.scrollY > 30 ? anchorNow() : null }); }
+let _scT = 0; window.addEventListener("scroll", () => { clearTimeout(_scT); _scT = setTimeout(saveState, 250); }, { passive: true });
+window.addEventListener("pagehide", saveState);
 function saveLoc() {
-  if (!S.user || S.user.role !== "admin") return;
+  saveState();
+  if (!S.user || S.user.role !== "admin" || !LOC_DONE) return;
   let h = S.tab;
   if (S.view && S.view.type === "mat") h = "materialy/" + S.view.id;
   else if (S.tab === "platnosci" && S.selP) h += "/" + S.selP;
@@ -2063,19 +2106,19 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
   try { B = withUndo(DEMO ? demoBackend() : await fbBackend()); }
   catch (e) { root.innerHTML = `<div class="wrap"><div class="notice bad" style="margin-top:40px">Nie udało się połączyć z Firebase. Sprawdź plik config.js. (${esc(e.message)})</div></div>`; return; }
   B.onAuth(async u => {
-    S.user = u; S.view = null; S.data = null; UNDO.stack = []; UNDO.cur = null; undoBtn();
+    S.user = u; S.view = null; S.data = null; UNDO.stack = []; UNDO.cur = null; undoBtn(); LOC_DONE = false;
     if (u) {
-      const fresh = async () => { const seq = WRITE_SEQ; if (u.role === "admin") { await loadAdmin(); if (WRITE_SEQ !== seq) await loadAdmin(true); await autoComplete(); mergeRedos().catch(() => {}); loadLoc(); } else { await loadStudent(); if (WRITE_SEQ !== seq) await loadStudent(true); } saveCache(); };
+      const fresh = async () => { const seq = WRITE_SEQ; if (u.role === "admin") { await loadAdmin(); if (WRITE_SEQ !== seq) await loadAdmin(true); await autoComplete(); mergeRedos().catch(() => {}); } else { await loadStudent(); if (WRITE_SEQ !== seq) await loadStudent(true); } saveCache(); };
       let cached = false; try { cached = await loadCache(u); } catch (e) { cached = false; }
       if (cached) {
-        render();
+        restoreLoc(); render(); afterRestoreRender();
         fresh().then(() => { if (S.user !== u) return; lastRefresh = Date.now(); if (safeToRerender()) { const y = window.scrollY; render(); window.scrollTo(0, y); } }).catch(e => console.warn("fresh load", e));
         return;
       }
       root.innerHTML = frame('<p class="empty">Ładowanie…</p>');
       try { await fresh(); } catch (e) { root.innerHTML = frame(`<div class="notice bad">${esc(errMsg(e))}</div>`); return; }
     }
-    render();
+    restoreLoc(); render(); afterRestoreRender();
   });
   if ("serviceWorker" in navigator && location.protocol === "https:" && !DEMO) navigator.serviceWorker.register("sw.js").catch(() => { });
 })();
