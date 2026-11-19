@@ -216,6 +216,19 @@ async function loadAdmin(light) {
   S.data = { settings: settingsApp || {}, students: by(students), plans: by(plans), tests: by(tests), assignments: by(assignments), results: by(results), planState: by(planState), mathProgress: by(mathProgress), materials: { ...Object.fromEntries((SEED.materials || []).map(m => [m.id, m])), ...by(materials) }, lessons: by(lessons), payments: by(payments), engProgress: by(engProgress) };
   if (TESTS_SYNCED) { await syncLocalTests(results0, true); return; }
   TESTS_SYNCED = true; await syncLocalTests(results0);
+  setTimeout(() => trimRemovedResults().catch(e => console.warn("trim", e)), 8000);
+}
+/* Wyniki starszych matur: przelicz bez zadań usuniętych z arkuszy (poza wymaganiami od matury 2025). Raz na wynik (pole trim). */
+const TRIM_V = 1;
+async function trimRemovedResults() {
+  const ARK = Object.fromEntries((window.PE_ARKUSZE || []).filter(t => t.questions && t.questions.some(q => q.removed)).map(t => [t.id, t]));
+  for (const r of Object.values(S.data.results || {})) {
+    const t = ARK[r.testId]; if (!t || (r.trim || 0) >= TRIM_V) continue;
+    const a = S.data.assignments[r.assignmentId]; if (a && a.only) continue; // poprawki liczone osobno
+    const cs = scoreTest(t, r.answers || {}, r.over), live = Object.keys(r.openPts || {}).filter(k => !(t.questions[k] || {}).removed).length;
+    const upd = { closedScore: cs, closedMax: maxTest(t), score: cs + openSum(t, r.openPts), max: maxTest(t) + (live ? openMax(t) : 0), trim: TRIM_V };
+    try { await Object.getPrototypeOf(B).update.call(B, "results", r.assignmentId || r.id, upd); Object.assign(r, upd); } catch (e) { console.warn("trim", r.id, e); }
+  }
 }
 async function loadStudent(light) {
   const sid = S.user.studentId;
@@ -520,7 +533,7 @@ function renderStudent() {
 function groupQuestions(t) {
   const groups = (t.passages || []).map((p, i) => ({ p, i, qs: [] }));
   const loose = [];
-  (t.questions || []).forEach((q, n) => { const g = groups[q.p ?? (groups.length ? 0 : -1)]; (g ? g.qs : loose).push(n); });
+  (t.questions || []).forEach((q, n) => { if (q.removed) return; const g = groups[q.p ?? (groups.length ? 0 : -1)]; (g ? g.qs : loose).push(n); });
   if (loose.length || !groups.length) groups.push({ p: null, i: -1, qs: loose });
   return groups;
 }
@@ -543,7 +556,8 @@ function photoBox(n, list, editable) {
   return `<div class="phs">${(list || []).map((u, i) => `<span class="ph"><img src="${u}" alt="Zdjęcie rozwiązania ${i + 1}" data-zoom>${editable ? `<button type="button" class="phx" data-act="phDel" data-n="${n}" data-i="${i}" aria-label="Usuń zdjęcie">×</button>` : ""}</span>`).join("")}
   ${editable ? `<label class="btn sm mustard phadd">📷 Dodaj zdjęcie rozwiązania<input type="file" accept="image/*" data-photo="${n}" hidden multiple></label>` : ""}</div>`;
 }
-const openMax = t => t.questions.reduce((s, q) => s + (q.type === "open" ? q.pts || 0 : 0), 0);
+const openMax = t => t.questions.reduce((s, q) => s + (q.type === "open" && !q.removed ? q.pts || 0 : 0), 0);
+const liveQ = t => (t.questions || []).map((q, n) => [q, n]).filter(([q]) => !q.removed); // zadania usunięte (poza wymaganiami) zostają w tablicy, żeby nie przesunąć numerów odpowiedzi
 /* ---------- poprawa: test złożony tylko z wybranych zadań ---------- */
 const grpKey = q => String(q.label || "").replace(/\.\d+\.?$/, "").replace(/\.$/, "");
 const redosOf = a => a ? Object.values(S.data.assignments || {}).filter(x => x.redoOf === a.id).sort((x, y) => String(x.createdAt || "").localeCompare(String(y.createdAt || ""))) : [];
@@ -572,7 +586,7 @@ function subsetTest(t, only) {
 }
 const testForAssign = a => { const t = S.data.tests[a.testId]; if (!t) return null; return a.only ? subsetTest({ id: a.testId, ...t }, a.only) : { id: a.testId, ...t }; };
 function wrongIdx(t, r) {
-  const out = []; t.questions.forEach((q, n) => {
+  const out = []; t.questions.forEach((q, n) => { if (q.removed) return;
     if (q.type === "open") { const g = (r.openPts || {})[n]; if (g == null || g < (q.pts || 0)) out.push(n); }
     else if (qScore(q, (r.answers || {})[n], (r.over || {})[n]) < qMax(q)) out.push(n);
   });
@@ -585,7 +599,7 @@ function redoTestModal() {
   openModal({ title: `Zadaj ponownie błędne: ${t.title}`, submit: "Zadaj zaznaczone", wide: true, body: `
   <p class="small muted">Zaznaczone są zadania za mniej niż pełne punkty (u otwartych także te jeszcze nieocenione). Możesz odznaczyć albo dodać inne.</p>
   <div class="acts"><button type="button" class="btn sm ghost" data-allw="1">zaznacz wszystkie</button><button type="button" class="btn sm ghost" data-allw="0">odznacz wszystkie</button></div>
-  <div style="display:flex;flex-wrap:wrap;gap:6px 14px">${t.questions.map((q, i) => `<label class="check" style="min-width:96px"><input type="checkbox" name="w" value="${orig(i)}" ${wrong.has(i) ? "checked" : ""}> ${esc((q.label || "Zadanie " + (i + 1)).replace(/^Zadanie\s*/, "").replace(/\.$/, ""))}${wrong.has(i) ? ' <span class="chip bad" style="padding:0 6px">źle</span>' : ""}</label>`).join("")}</div>
+  <div style="display:flex;flex-wrap:wrap;gap:6px 14px">${t.questions.map((q, i) => q.removed ? "" : `<label class="check" style="min-width:96px"><input type="checkbox" name="w" value="${orig(i)}" ${wrong.has(i) ? "checked" : ""}> ${esc((q.label || "Zadanie " + (i + 1)).replace(/^Zadanie\s*/, "").replace(/\.$/, ""))}${wrong.has(i) ? ' <span class="chip bad" style="padding:0 6px">źle</span>' : ""}</label>`).join("")}</div>
   <label class="f">Termin wykonania<input type="date" name="due" value="${defaultDue(sid)}" data-due></label>
   <div class="acts"><span class="small muted">Termin:</span><button type="button" class="btn sm ghost" data-due-set="next">do następnej lekcji</button><button type="button" class="btn sm ghost" data-due-set="week">za tydzień</button><button type="button" class="btn sm ghost" data-due-set="none">bez terminu</button><span class="small muted" data-due-info>${dueInfo(sid)}</span></div>
   <input type="hidden" name="sid" value="${sid}">`,
@@ -603,9 +617,10 @@ const normAns = x => String(x || "").replace(/[’‘`´]/g, "'").replace(/\s+/g
 const mathNorm = x => normAns(x).replace(/\s+/g, "").replace(/²/g, "^2").replace(/[−–—]/g, "-").replace(/;/g, ",").replace(/</g, "[").replace(/>/g, "]").replace(/^x(∈|=|\\in)/, "").replace(/\.(?=\d)/g, ",").replace(/∞/g, "inf").replace(/\+inf/g, "inf");
 const textOk = (q, a) => { const N = q.math ? mathNorm : normAns; const v = N(a); if (!v) return false; return (q.acc || []).some(x => N(x) === v) && !(q.caseI && /\bi\b/.test(String(a).replace(/[A-Z]/g, ""))); };
 const qScore = (q, a, ov) => { if (q.type === "open") return 0; if (ov === 1) return qMax(q); if (ov === 0) return 0; if (a === undefined) return 0; if (q.type === "text") return textOk(q, a) ? (q.pts || 1) : 0; if (q.type === "multi") return Math.min(q.c.length, (a || []).filter(x => q.c.includes(x)).length); return a === q.c ? (q.pts || 1) : 0; };
-const scoreTest = (t, answers, over) => t.questions.reduce((s, q, n) => s + qScore(q, answers[n], (over || {})[n]), 0);
-const maxTest = t => t.questions.reduce((s, q) => s + qMax(q), 0);
-const openPts = t => t.questions.reduce((s, q) => s + (q.type === "open" ? q.pts || 0 : 0), 0);
+const scoreTest = (t, answers, over) => t.questions.reduce((s, q, n) => s + (q.removed ? 0 : qScore(q, answers[n], (over || {})[n])), 0);
+const maxTest = t => t.questions.reduce((s, q) => s + (q.removed ? 0 : qMax(q)), 0);
+const openPts = t => t.questions.reduce((s, q) => s + (q.type === "open" && !q.removed ? q.pts || 0 : 0), 0);
+const openSum = (t, op) => Object.entries(op || {}).reduce((a, [n, x]) => a + ((t.questions[n] || {}).removed ? 0 : x), 0);
 const ytId = u => { const m = String(u || "").match(/(?:v=|youtu\.be\/|embed\/)([\w-]{11})/); return m ? m[1] : ""; };
 function ytBox(t) {
   const id = ytId(t.yt); if (!id) return "";
@@ -717,7 +732,7 @@ async function fcAnswer(ok) {
 function renderTest() {
   const v = S.view; const t = v.test;
   if (t.kind === "fiszki") { if (v.mode === "take" && !v.fc) fcStart(t.questions.map((_, i) => i)); return renderCards(); }
-  const closedQ = t.questions.map((q, n) => [q, n]).filter(([q]) => q.type !== "open");
+  const closedQ = liveQ(t).filter(([q]) => q.type !== "open");
   const filled = (q, a) => a !== undefined && a !== "" && !(q.type === "multi" && !(a || []).length);
   const total = closedQ.length; const answered = closedQ.filter(([q, n]) => filled(q, v.answers[n])).length;
   let top = "", bottom = "";
@@ -725,9 +740,9 @@ function renderTest() {
     bottom = `<div class="submitbar"><span class="muted">Odpowiedzi: <b>${answered}/${total}</b><span class="small" id="draftInfo" style="display:block;font-weight:400">${draftLabel(v.draftAt)}</span></span><span style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">${S.preview ? "" : `<button class="btn ghost" data-act="saveDraft">Zapisz wersję roboczą</button>`}<button class="btn primary" data-act="submitTest" ${S.busy ? "disabled" : ""}>Oddaj test</button></span></div>`;
   } else if (v.mode === "result") {
     const r = v.result;
-    const op = openPts(t); const nOpen = t.questions.filter(q => q.type === "open").length; const graded = Object.keys(r.openPts || {}).length;
+    const op = openPts(t); const nOpen = t.questions.filter(q => q.type === "open" && !q.removed).length; const graded = Object.keys(r.openPts || {}).filter(n => !(t.questions[n] || {}).removed).length;
     const cs = r.closedScore ?? (graded ? null : r.score), cm = r.closedMax ?? (graded ? null : r.max);
-    const og = Object.values(r.openPts || {}).reduce((a, x) => a + x, 0);
+    const og = openSum(t, r.openPts);
     top = `<div class="scorecard"><span class="score">${r.score}/${r.max}</span><div><b>${pct(r.score, r.max)}%${r.firstScore != null && !v.assignment?.only ? ` <span class="chip ok" style="vertical-align:middle">poprawione · pierwotnie ${r.firstScore}/${r.firstMax ?? r.max}</span>` : ""}</b><p class="small muted">${op ? `${t.subject === "ang" ? "Sprawdzane automatycznie" : "Zadania zamknięte"}: ${cs ?? "–"}/${cm ?? "–"} pkt · ${t.subject === "ang" ? "wypowiedź pisemna" : "zadania otwarte"}: ${graded ? `${og}/${op} pkt${graded < nOpen ? ` (sprawdzone ${graded} z ${nOpen})` : ""}` : `${op} pkt – ${t.subject === "ang" ? "czeka" : "czekają"} na sprawdzenie`}` : "Przejrzyj wyjaśnienia przy pytaniach, zwłaszcza tam, gdzie jest „Źle”."}</p></div></div>`;
   } else top = `<div class="notice small">Podgląd z kluczem odpowiedzi i wyjaśnieniami.</div>`;
   root.innerHTML = frame(`<div class="head"><div><button class="btn sm ghost" data-act="back" style="justify-self:start">← Wróć</button><p class="eyebrow">${esc(t.topic || "")}${t.level ? " · " + esc(t.level) : ""}</p><h1>${v.assignment && v.assignment.only ? "Poprawa: " : ""}${esc(t.title)}</h1>${v.assignment && v.assignment.only ? `<p class="small muted">Tylko zadania, które poprzednio wyszły źle (${v.assignment.only.length}).</p>` : ""}${v.who ? `<p class="muted">${esc(v.who)}</p>` : ""}</div>${v.mode === "key" && S.user.role === "admin" && !S.preview ? `<div class="acts"><button class="btn primary" data-act="giveTest" data-id="${esc(t.id)}">Zadaj uczniowi</button></div>` : ""}${v.mode === "result" && S.user.role === "admin" && !S.preview && v.result ? `<div class="acts" style="flex-direction:column;align-items:flex-end;gap:6px">${redoInfo(v.assignment)}<button class="btn ${redosOf(v.assignment).length ? "ghost" : "mustard"}" data-act="redoTest">${redosOf(v.assignment).length ? "Zadaj ponownie jeszcze raz" : "Zadaj ponownie błędne"} (${wrongIdx(t, v.result).length})</button></div>` : ""}</div>
@@ -736,11 +751,11 @@ function renderTest() {
 async function submitTest() {
   if (S.preview) { toast("To tylko podgląd – test nie zostanie oddany."); return; }
   const v = S.view; const t = v.test;
-  const need = t.questions.filter(q => q.type !== "open").length; const got = t.questions.filter((q, n) => q.type !== "open" && v.answers[n] !== undefined && String(v.answers[n]).trim() !== "" && !(q.type === "multi" && !(v.answers[n] || []).length)).length;
+  const need = t.questions.filter(q => q.type !== "open" && !q.removed).length; const got = t.questions.filter((q, n) => q.type !== "open" && !q.removed && v.answers[n] !== undefined && String(v.answers[n]).trim() !== "" && !(q.type === "multi" && !(v.answers[n] || []).length)).length;
   if (got < need && !(await ask("Nie odpowiedziałeś/aś na wszystkie pytania. Oddać mimo to?", "Oddaj"))) return;
   const score = scoreTest(t, v.answers);
-  const nOpen = t.questions.filter(q => q.type === "open" && !q.write).length, nPh = Object.values(v.photos || {}).filter(a => a.length).length;
-  const nW = t.questions.map((q, i) => [q, i]).filter(([q, i]) => q.type === "open" && q.write && !String(v.answers[i] || "").replace(q.start || "", "").trim()).length;
+  const nOpen = t.questions.filter(q => q.type === "open" && !q.write && !q.removed).length, nPh = Object.values(v.photos || {}).filter(a => a.length).length;
+  const nW = t.questions.map((q, i) => [q, i]).filter(([q, i]) => q.type === "open" && q.write && !q.removed && !String(v.answers[i] || "").replace(q.start || "", "").trim()).length;
   if (nW && !(await ask("Wypowiedź pisemna jest pusta. Oddać test bez niej?", "Oddaj"))) return;
   if (nOpen && nPh < nOpen && !(await ask(`Zdjęcia dodałeś/aś do ${nPh} z ${nOpen} zadań otwartych. Bez zdjęcia nauczycielka nie przyzna punktów. Oddać mimo to?`, "Oddaj"))) return;
   let photos = {}; if (nPh) { S.busy = true; renderTest(); photos = await fitPhotos(v.photos); S.busy = false; if (!photos) { renderTest(); toast("Zdjęcia są za duże – usuń część z nich i spróbuj jeszcze raz."); return; } }
@@ -870,8 +885,8 @@ function appResultFor(sid, testId) {
 function maturaCell(sid, sh, topics) {
   const r1 = appResultFor(sid, sh.id), r2 = sh.listen ? appResultFor(sid, sh.listen) : null;
   if (r1 || r2) { const sc = (r1 ? r1.score : 0) + (r2 ? r2.score : 0), mx = (r1 ? r1.max : 0) + (r2 ? r2.max : 0);
-    const def = (window.PE_ARKUSZE || []).find(x => x.id === sh.id); const nOpen = def ? def.questions.filter(q => q.type === "open").length : 0;
-    const pend = r1 && nOpen ? nOpen - Object.keys(r1.openPts || {}).length : 0;
+    const def = (window.PE_ARKUSZE || []).find(x => x.id === sh.id); const nOpen = def ? def.questions.filter(q => q.type === "open" && !q.removed).length : 0;
+    const pend = r1 && nOpen ? nOpen - Object.keys(r1.openPts || {}).filter(k => !(def.questions[k] || {}).removed).length : 0;
     return { pct: Math.round(sc / mx * 100), pts: sc, max: mx, app: true, pend: Math.max(0, pend), part: sh.listen && !(r1 && r2) ? (r1 ? "bez słuchania" : "tylko słuchanie") : "" }; }
   const x = (topics || {})[sh.key]; if (x && typeof x.pct === "number") return { pct: x.pct, pts: x.pts, max: x.max, app: false };
   return null;
@@ -1223,7 +1238,7 @@ async function mergeRedos() {
       const ov = (rr.over || {})[j]; if (ov != null) over[i] = ov; else delete over[i];
       const g = (rr.openPts || {})[j]; if (g != null) openPtsM[i] = g; else if (t.questions[i] && t.questions[i].type === "open") delete openPtsM[i];
     });
-    const cs = scoreTest(t, answers, over), og = Object.values(openPtsM).reduce((x, y) => x + y, 0);
+    const cs = scoreTest(t, answers, over), og = openSum(t, openPtsM);
     const upd = { answers, over, openPts: openPtsM, closedScore: cs, score: cs + og, firstScore: ro.firstScore ?? ro.score, firstMax: ro.firstMax ?? ro.max, correctedAt: rr.submittedAt || new Date().toISOString(), redoApplied: { ...(ro.redoApplied || {}), [a.id]: sig } };
     try { await RB.update("results", a.redoOf, upd); Object.assign(ro, upd); n++; } catch (e) { console.warn("merge redo", e); }
   }
@@ -1279,7 +1294,7 @@ function renderDzis() {
   ${panel("Jutro", tomorrow.length ? `<div class="list">${tomorrow.map(l => lessonRow(l)).join("")}</div>` : emptyP("Jutro bez lekcji."))}
   ${panel("Oznaczone automatycznie", autoD.length ? `<div class="list">${autoD.map(l => `<div class="row"><span class="time">${esc(fmtDate(l.date))} · ${esc(l.time)}</span><span class="grow"><button class="link" type="button" data-act="editLesson" data-id="${l.id}">${esc(lzName(l))}</button><span class="small muted">${zl(Number(l.price) || 0)}</span></span>${statusChip(l.status)}<button class="btn sm ghost" data-act="setStatus" data-id="${l.id}" data-s="cancelled">Jednak odwołana</button></div>`).join("")}</div>` : emptyP("W ostatnim tygodniu nic nie oznaczyło się samo."), "Lekcje, których nie oznaczyłaś, po północy zmieniają się na odbyte i nalicza się płatność. Jeśli któraś się nie odbyła, popraw ją tutaj.")}
   ${panel("Zaległe płatności", debt.length ? `<div class="list">${debt.map(([s, b]) => `<div class="row"><span class="grow"><button class="link" type="button" data-act="stOpen" data-id="${s.id}">${esc(s.name)}</button></span><b style="color:var(--bad)">${zl(b)}</b><button class="btn sm" data-act="newPayment" data-sid="${s.id}">+ Wpłata</button></div>`).join("")}</div>` : emptyP("Nikt nie zalega z płatnością."))}
-  ${(() => { const todo = Object.values(S.data.results).filter(r => { const aa = S.data.assignments[r.assignmentId]; const t = aa ? testForAssign(aa) : S.data.tests[r.testId]; if (!t || !t.questions) return false; const n = t.questions.filter(q => q.type === "open").length; return n && Object.keys(r.openPts || {}).length < n; }).sort((a, b) => (a.submittedAt || "").localeCompare(b.submittedAt || ""));
+  ${(() => { const todo = Object.values(S.data.results).filter(r => { const aa = S.data.assignments[r.assignmentId]; const t = aa ? testForAssign(aa) : S.data.tests[r.testId]; if (!t || !t.questions) return false; const n = t.questions.filter(q => q.type === "open" && !q.removed).length; return n && Object.keys(r.openPts || {}).filter(k => !(t.questions[k] || {}).removed).length < n; }).sort((a, b) => (a.submittedAt || "").localeCompare(b.submittedAt || ""));
     return todo.length ? panel("Do sprawdzenia", `<div class="list">${todo.map(r => { const a = S.data.assignments[r.assignmentId]; const ph = Object.values(r.photos || {}).filter(x => x.length).length; return `<div class="row"><span class="grow"><b>${esc(sName(r.studentId))}</b><span class="small muted">${esc((S.data.tests[r.testId] || {}).title || "")} · oddane ${esc(fmtDate((r.submittedAt || "").slice(0, 10)))} · zdjęcia: ${ph}</span></span>${a ? `<button class="btn sm primary" data-act="viewResult" data-id="${a.id}">Sprawdź</button>` : ""}</div>`; }).join("")}</div>`, "Zadania otwarte czekają na Twoje punkty.") : ""; })()}
   ${panel("Zadania po terminie", overdue.length ? `<div class="list">${overdue.map(a => `<div class="row"><span class="grow"><button class="link" type="button" data-act="stOpen" data-id="${a.studentId}">${esc(sName(a.studentId))}</button><span class="small muted">${esc(taskTitle(a))}</span></span><span class="chip bad">termin ${esc(fmtDate(a.due))}</span></div>`).join("")}</div>` : emptyP("Brak zaległych zadań."))}
   </div>`;
@@ -1792,8 +1807,8 @@ root.addEventListener("click", async e => {
     else if (act === "ovr") {
       const r = S.view.result, aid = S.view.assignment.id, n = el.dataset.n; const over = { ...(r.over || {}) };
       if (el.dataset.v === "") delete over[n]; else over[n] = Number(el.dataset.v);
-      const cs = scoreTest(S.view.test, r.answers || {}, over), cm = r.closedMax ?? r.max; const op = r.openPts || {}; const has = Object.keys(op).length;
-      const upd = { over, closedScore: cs, closedMax: cm, score: cs + Object.values(op).reduce((a, x) => a + x, 0), max: cm + (has ? openMax(S.view.test) : 0) };
+      const cs = scoreTest(S.view.test, r.answers || {}, over), cm = maxTest(S.view.test); const op = r.openPts || {}; const has = Object.keys(op).filter(k => !(S.view.test.questions[k] || {}).removed).length;
+      const upd = { over, closedScore: cs, closedMax: cm, score: cs + openSum(S.view.test, op), max: cm + (has ? openMax(S.view.test) : 0) };
       await B.update("results", aid, upd); Object.assign(r, upd); S.data.results[aid] = r; const y = window.scrollY; renderTest(); window.scrollTo(0, y); toast(`Zapisano · wynik ${upd.score}/${upd.max}`);
     }
     else if (act === "phDel") { const n = el.dataset.n; S.view.photos[n].splice(Number(el.dataset.i), 1); draftSave(true, true); const y = window.scrollY; renderTest(); window.scrollTo(0, y); }
@@ -1843,7 +1858,7 @@ root.addEventListener("input", e => {
   if ((ds.txt !== undefined || ds.essay !== undefined) && S.view && S.view.mode === "take") {
     const n = ds.txt ?? ds.essay; S.view.answers[n] = e.target.value;
     if (ds.essay !== undefined) { const q = S.view.test.questions[n]; const w = (e.target.value.trim().match(/\S+/g) || []).length; const el = root.querySelector(`[data-wc="${n}"]`); if (el) el.textContent = `Liczba wyrazów: ${w}${q.words ? ` (wymagane ${q.words[0]}–${q.words[1]})` : ""}`; }
-    const bar = root.querySelector(".submitbar b"); if (bar) { const t = S.view.test; const cq = t.questions.map((q, i) => [q, i]).filter(([q]) => q.type !== "open"); bar.textContent = `${cq.filter(([q, i]) => { const a = S.view.answers[i]; return a !== undefined && String(a).trim() !== "" && !(q.type === "multi" && !(a || []).length); }).length}/${cq.length}`; }
+    const bar = root.querySelector(".submitbar b"); if (bar) { const t = S.view.test; const cq = liveQ(t).filter(([q]) => q.type !== "open"); bar.textContent = `${cq.filter(([q, i]) => { const a = S.view.answers[i]; return a !== undefined && String(a).trim() !== "" && !(q.type === "multi" && !(a || []).length); }).length}/${cq.length}`; }
     draftSave(true);
     return;
   }
@@ -1893,8 +1908,8 @@ root.addEventListener("change", async e => {
     const n = e.target.dataset.gpts, q = S.view.test.questions[n], r = S.view.result, aid = S.view.assignment.id;
     const raw = e.target.value.trim(); const op = { ...(r.openPts || {}) };
     if (raw === "") delete op[n]; else { const v = Math.round(Number(raw.replace(",", ".")) * 2) / 2; if (!(v >= 0 && v <= q.pts)) { toast(`Wpisz od 0 do ${q.pts} pkt.`); return; } op[n] = v; }
-    const cs = scoreTest(S.view.test, r.answers || {}, r.over), cm = r.closedMax ?? r.max; const has = Object.keys(op).length;
-    const upd = { openPts: op, closedScore: cs, closedMax: cm, score: cs + Object.values(op).reduce((a, x) => a + x, 0), max: cm + (has ? openMax(S.view.test) : 0), gradedAt: new Date().toISOString() };
+    const cs = scoreTest(S.view.test, r.answers || {}, r.over), cm = maxTest(S.view.test); const has = Object.keys(op).filter(k => !(S.view.test.questions[k] || {}).removed).length;
+    const upd = { openPts: op, closedScore: cs, closedMax: cm, score: cs + openSum(S.view.test, op), max: cm + (has ? openMax(S.view.test) : 0), gradedAt: new Date().toISOString() };
     try { await B.update("results", aid, upd); Object.assign(r, upd); S.data.results[aid] = r; const y = window.scrollY; renderTest(); window.scrollTo(0, y); toast(`Zapisano · wynik ${upd.score}/${upd.max}`); } catch (err) { toast(errMsg(err)); }
     return;
   }
