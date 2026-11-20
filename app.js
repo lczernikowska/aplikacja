@@ -241,10 +241,10 @@ async function loadStudent(light) {
 }
 
 /* ---------------- ramka ---------------- */
-const ADMIN_TABS = [["dzis", "Dziś"], ["kalendarz", "Kalendarz"], ["uczniowie", "Uczniowie"], ["platnosci", "Płatności"], ["zgory", "Rozliczenie z góry"], ["zadania", "Zadania domowe"], ["maturzysci", "Matura angielski"], ["matematyka", "Matura matematyka"], ["materialy", "Materiały"], ["testy", "Bank testów"], ["ustawienia", "Ustawienia"]];
+const ADMIN_TABS = [["dzis", "Dziś"], ["kalendarz", "Kalendarz"], ["uczniowie", "Uczniowie"], ["platnosci", "Płatności"], ["zgory", "Rozliczenie z góry"], ["zadania", "Zadania domowe"], ["maturzysci", "Matura angielski"], ["matematyka", "Matura matematyka"], ["materialy", "Materiały"], ["testy", "Bank testów"], ["notatki", "Notatki"], ["ustawienia", "Ustawienia"]];
 ADMIN_TABS.push(["wplaty", "Ostatnie wpłaty"]);
-const NAV_GROUPS = [["dzis", "Dziś", ["dzis"]], ["kalendarz", "Kalendarz", ["kalendarz"]], ["uczniowie", "Uczniowie", ["uczniowie"]], ["platnosci", "Płatności", ["platnosci", "zgory", "wplaty"]], ["zad", "Zadania i materiały", ["zadania", "materialy", "testy"]], ["matura", "Matura", ["maturzysci", "matematyka"]], ["ustawienia", "Ustawienia", ["ustawienia"]]];
-const SUB_LABELS = { zadania: "Zadania domowe", materialy: "Materiały", testy: "Bank testów", maturzysci: "Angielski", matematyka: "Matematyka" };
+const NAV_GROUPS = [["dzis", "Dziś", ["dzis"]], ["kalendarz", "Kalendarz", ["kalendarz"]], ["uczniowie", "Uczniowie", ["uczniowie"]], ["platnosci", "Płatności", ["platnosci", "zgory", "wplaty"]], ["zad", "Zadania i materiały", ["zadania", "materialy", "testy", "notatki"]], ["matura", "Matura", ["maturzysci", "matematyka"]], ["ustawienia", "Ustawienia", ["ustawienia"]]];
+const SUB_LABELS = { zadania: "Zadania domowe", materialy: "Materiały", testy: "Bank testów", notatki: "Notatki", maturzysci: "Angielski", matematyka: "Matematyka" };
 const groupOf = t => NAV_GROUPS.find(g => g[2].includes(t)) || NAV_GROUPS[0];
 S.lastSub = {};
 function subNav() { const g = groupOf(S.tab); if (g[0] !== "zad" && g[0] !== "matura") return ""; return `<div class="subtabs" role="tablist" style="margin-bottom:4px">${g[2].map(k => `<button data-act="tab" data-k="${k}" aria-selected="${S.tab === k}">${SUB_LABELS[k]}</button>`).join("")}</div>`; }
@@ -509,6 +509,8 @@ const isFuture = a => false; // uczeń widzi wszystkie zadania od razu (pole "fr
 function renderStudent() {
   if (!S.user.studentId) { root.innerHTML = frame(`<div class="notice bad">Twoje konto nie jest jeszcze przypisane do ucznia. Napisz do swojej korepetytorki.</div>`); return; }
   if (S.view && S.view.type === "test") return renderTest();
+  if (S.view && S.view.type === "note") return renderNote();
+  if (S.stab === "notatki") { root.innerHTML = frame(renderNotatki()); return; }
   const as = Object.values(S.data.assignments).filter(a => !isFuture(a)).sort((a, b) => (a.due || "").localeCompare(b.due || ""));
   const arch = as.filter(isArch).reverse(); const live = as.filter(a => !isArch(a));
   const todo = live.filter(a => !resultFor(a.id)).sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999")), done = live.filter(a => resultFor(a.id)).reverse();
@@ -523,7 +525,7 @@ function renderStudent() {
   <section class="panel"><h2>Płatności</h2><div class="stats">${balanceBlock(b)}</div>
   ${b.pays.length ? `<div class="tablewrap"><table><thead><tr><th>Data wpłaty</th><th>Kwota</th></tr></thead><tbody>${b.pays.sort((x, y) => (y.date || "").localeCompare(x.date || "")).map(p => `<tr><td>${esc(fmtDate(p.date))}</td><td>${zl(Number(p.amount) || 0)}</td></tr>`).join("")}</tbody></table></div>` : ""}
   ${bank && bank.account ? `<details><summary class="small" style="cursor:pointer;color:var(--accent);font-weight:600">Dane do przelewu</summary><p class="small" style="margin-top:8px">Odbiorca: ${esc(bank.recipient || "")}<br>Numer konta: <b style="user-select:all">${esc(bank.account)}</b>${title ? `<br>Tytuł: ${esc(title)}` : ""}</p></details>` : ""}</section>`;
-  root.innerHTML = frame(`${installHint()}<div class="head"><div><p class="eyebrow">Twoje konto</p><h1>Cześć, ${esc(S.user.name.split(" ")[0])}!</h1></div></div>${top}${studentResults()}${studentMatury()}
+  root.innerHTML = frame(`${installHint()}${stuTabs()}<div class="head"><div><p class="eyebrow">Twoje konto</p><h1>Cześć, ${esc(S.user.name.split(" ")[0])}!</h1></div></div>${top}${studentResults()}${studentMatury()}
   <section class="list"><h2>Do zrobienia</h2>${todo.length ? todo.map(card).join("") : '<p class="empty">Wszystko zrobione. 🎉</p>'}${(() => { const fut = Object.values(S.data.assignments).filter(a => isFuture(a) && !isArch(a)).map(a => a.from).sort(); return fut.length ? `<p class="small muted" style="margin:6px 2px">Zaplanowane: jeszcze ${fut.length} ${plural(fut.length, "zadanie", "zadania", "zadań")} z serii – kolejne pojawi się ${esc(fmtDate(fut[0]))}.</p>` : ""; })()}</section>
   <section class="list"><h2>Zrobione</h2>${done.length ? done.map(card).join("") : '<p class="empty">Tu pojawią się Twoje wyniki.</p>'}</section>
   ${arch.length ? `<details class="list" style="margin-top:8px"><summary style="cursor:pointer"><h2 style="display:inline">Archiwum (${arch.length})</h2></summary><div class="list" style="margin-top:10px">${arch.map(card).join("")}</div></details>` : ""}`);
@@ -1042,6 +1044,102 @@ function printMat(withKey) {
   const old = document.title; document.title = m.title.replace(/[:·]/g, " -").replace(/\s+/g, " ") + (withKey ? "" : " (bez odpowiedzi)");
   setTimeout(() => { window.print(); document.title = old; }, 50);
 }
+/* ---------------- notatki ---------------- */
+let NOTES = null, NOTES_ERR = "";
+async function loadNotes() {
+  if (NOTES) return NOTES;
+  try {
+    const cfg = await B.get("settings", "notes"); if (!cfg || !cfg.key) { NOTES_ERR = S.user.role === "admin" ? "Notatki nie są jeszcze aktywne – otwórz link aktywacyjny, który dostałaś." : "Notatki będą dostępne wkrótce."; return null; }
+    const res = await fetch("notatki.bin?v=" + (window.PE_NOTES_V || Date.now())); const bin = Uint8Array.from(atob((await res.text()).trim()), c => c.charCodeAt(0));
+    const kb = Uint8Array.from(atob(cfg.key.replace(/-/g, "+").replace(/_/g, "/") + "==".slice(0, (4 - cfg.key.length % 4) % 4)), c => c.charCodeAt(0));
+    const k = await crypto.subtle.importKey("raw", kb, "AES-GCM", false, ["decrypt"]);
+    const raw = await crypto.subtle.decrypt({ name: "AES-GCM", iv: bin.slice(0, 12) }, k, bin.slice(12));
+    NOTES = JSON.parse(new TextDecoder().decode(raw)); NOTES.byId = {};
+    for (const sj of NOTES.subjects) for (const lv of sj.levels) lv.dzialy.forEach((dz, di) => dz.notes.forEach((n, ni) => { NOTES.byId[n.id] = { n, sj, lv, dz, di, ni }; }));
+    return NOTES;
+  } catch (e) { console.warn("notes", e); NOTES_ERR = "Nie udało się wczytać notatek. Sprawdź internet i odśwież stronę."; return null; }
+}
+function katexOf(tex, display) { try { return window.katex ? katex.renderToString(tex, { displayMode: display, throwOnError: false, strict: "ignore" }) : esc(tex); } catch (e) { return esc(tex); } }
+function noteHtml(src, opts = {}) {
+  const M = []; const ph = h => { M.push(h); return "\u0001" + (M.length - 1) + "\u0002"; };
+  let t = String(src || "").replace(/\r/g, "");
+  t = t.replace(/\$\$([\s\S]+?)\$\$/g, (m, x) => "\n\n" + ph(`<div class="nmath">${katexOf(x.trim(), true)}</div>`) + "\n\n");
+  t = t.replace(/\$([^$\n]+?)\$/g, (m, x) => ph(katexOf(x, false)));
+  const BOX = { wzor: ["Wzór", "📐"], uwaga: ["Uwaga", "⚠️"], przyklad: ["Przykład", "✏️"], krok: ["Krok po kroku", "🪜"], wazne: ["Zapamiętaj", "⭐"] };
+  const parts = []; const L = t.split("\n"); let buf = [];
+  const flush = () => { if (buf.length) { parts.push({ md: buf.join("\n") }); buf = []; } };
+  for (let i = 0; i < L.length; i++) {
+    const m = L[i].match(/^:::(\w+)\s*(.*)$/);
+    if (!m) { buf.push(L[i]); continue; }
+    flush(); const inner = []; i++; while (i < L.length && L[i].trim() !== ":::") inner.push(L[i++]);
+    parts.push({ box: m[1], title: m[2], body: inner });
+  }
+  flush();
+  let chk = 0;
+  const html = parts.map(p => {
+    if ("md" in p) return md(p.md);
+    if (p.box === "sprawdz") {
+      const items = p.body.filter(l => /^-\s/.test(l)).map(l => { const m = l.replace(/^-\s+/, "").match(/^(.*?)\s*=>\s*(.*?)\s*(?:\[([^\]]*)\])?$/); return m ? { q: m[1], a: m[2], acc: (m[3] || "").split("|").map(x => x.trim()).filter(Boolean) } : null; }).filter(Boolean);
+      if (opts.print) return `<section class="nbox sprawdz"><h3>✅ Sprawdź się</h3><ol>${items.map(x => `<li>${inl(x.q)}<div class="nprline"></div></li>`).join("")}</ol></section><section class="nbox sprawdz pans"><h3>Odpowiedzi do „Sprawdź się”</h3><ol>${items.map(x => `<li>${inl(x.a)}</li>`).join("")}</ol></section>`;
+      return `<section class="nbox sprawdz"><h3>✅ Sprawdź się <span class="small muted" style="font-weight:400">– tylko dla Ciebie, nikt tego nie sprawdza</span></h3><ol class="nchk">${items.map(x => { const id = chk++; return `<li data-nq="${id}"><div>${inl(x.q)}</div>
+        <div class="nchkrow">${x.acc.length ? `<input type="text" data-nin="${id}" data-acc="${esc(JSON.stringify(x.acc))}" placeholder="Twoja odpowiedź" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" class="btn sm" data-act="nCheck" data-id="${id}">Sprawdź</button>` : ""}<button type="button" class="btn sm ghost" data-act="nShow" data-id="${id}">Pokaż odpowiedź</button></div>
+        <div class="nres" data-nres="${id}" hidden></div><div class="nans" data-nans="${id}" hidden>Odpowiedź: ${inl(x.a)}</div></li>`; }).join("")}</ol></section>`;
+    }
+    const [lab, ico] = BOX[p.box] || ["", "•"];
+    return `<section class="nbox ${p.box}"><h3>${ico} ${inl(p.title || lab)}</h3>${md(p.body.join("\n"))}</section>`;
+  }).join("");
+  return html.replace(/<p>\s*(\u0001\d+\u0002)\s*<\/p>/g, "$1").replace(/==(.+?)==/g, "<mark>$1</mark>").replace(/__(.+?)__/g, "<u>$1</u>").replace(/\u0001(\d+)\u0002/g, (m, k) => M[+k]);
+}
+const NSTATE = { get() { try { return JSON.parse(localStorage.getItem("pe_notes_ui") || "{}"); } catch (e) { return {}; } }, set(o) { try { localStorage.setItem("pe_notes_ui", JSON.stringify({ ...NSTATE.get(), ...o })); } catch (e) { } } };
+function notesShell(inner) { return S.user.role === "admin" ? inner : stuTabs() + inner; }
+function stuTabs() { const t = S.stab || "zad"; return `<div class="subtabs" role="tablist" style="margin:4px 0 14px"><button data-act="stab" data-k="zad" aria-selected="${t === "zad"}">📋 Moje zadania</button><button data-act="stab" data-k="notatki" aria-selected="${t === "notatki"}">📚 Notatki</button></div>`; }
+function renderNotatki() {
+  if (!NOTES) { const h = `<div class="head"><div><p class="eyebrow">Teoria, wzory i przykłady</p><h1>Notatki</h1></div></div><p class="empty">${NOTES_ERR ? esc(NOTES_ERR) : "Wczytywanie notatek…"}</p>`;
+    if (!NOTES_ERR) loadNotes().then(() => { if (!S.view && (S.tab === "notatki" || S.stab === "notatki")) render(); });
+    return notesShell(h); }
+  const ui = NSTATE.get(); const sj = NOTES.subjects.find(x => x.id === ui.sj) || NOTES.subjects[0]; const lv = sj.levels.find(x => x.id === ui.lv) || sj.levels[0];
+  const q = norm(S.q.notes || "");
+  const hits = q ? NOTES.subjects.flatMap(x => x.levels.flatMap(l => l.dzialy.flatMap(d => d.notes.filter(n => n.body && norm(n.title + " " + d.name + " " + n.body).includes(q)).map(n => ({ n, d, l, x }))))) : null;
+  const noteBtn = (n, sub) => n.body ? `<button class="row" data-act="noteOpen" data-id="${n.id}"><span class="grow"><b>${esc(n.title)}</b>${sub ? `<span class="small muted">${esc(sub)}</span>` : ""}</span><span class="muted">›</span></button>` : `<div class="row" style="opacity:.55"><span class="grow">${esc(n.title)}</span><span class="small muted">w przygotowaniu</span></div>`;
+  const list = hits ? `<section class="panel"><h2>Wyniki wyszukiwania (${hits.length})</h2><div class="list">${hits.length ? hits.map(h => noteBtn(h.n, `${h.x.name} · ${h.d.name}`)).join("") : '<p class="empty">Nic nie znaleziono. Spróbuj innego słowa.</p>'}</div></section>`
+    : lv.dzialy.map((d, i) => { const ready = d.notes.filter(n => n.body).length; return `<details class="panel ndz" ${ready ? "open" : ""}><summary><span class="num">${i + 1}</span><b>${esc(d.name)}</b><span class="small muted">${ready ? `${ready}/${d.notes.length} gotowe` : "w przygotowaniu"}</span></summary><div class="list">${d.notes.map(n => noteBtn(n)).join("")}</div></details>`; }).join("");
+  return notesShell(`<div class="head"><div><p class="eyebrow">Teoria, wzory i przykłady</p><h1>Notatki</h1></div></div>
+  <div class="pills">${NOTES.subjects.map(x => `<button data-act="nSj" data-id="${x.id}" aria-pressed="${x.id === sj.id}">${esc(x.name)}</button>`).join("")}${NOTES.subjects.length < 2 ? '<button disabled aria-pressed="false" title="wkrótce">Angielski – wkrótce</button>' : ""}</div>
+  <div class="seg" style="margin:10px 0">${sj.levels.map(l => `<button data-act="nLv" data-id="${l.id}" aria-pressed="${l.id === lv.id}">${esc(l.name)}</button>`).join("")}</div>
+  ${lv.info ? `<p class="small muted" style="margin:0 0 8px">${esc(lv.info)}</p>` : ""}
+  <label class="f" style="max-width:520px"><span class="eyebrow">Szukaj w notatkach</span><input type="search" data-nsearch value="${esc(S.q.notes || "")}" placeholder="np. logarytm, delta, mediana" autocomplete="off"></label>
+  <div data-nlist style="display:grid;gap:12px;margin-top:12px">${list}</div>`);
+}
+function renderNote() {
+  if (!NOTES) { if (!NOTES_ERR) { root.innerHTML = frame('<p class="empty">Wczytywanie notatki…</p>'); loadNotes().then(() => render()); return; } S.view = null; return render(); }
+  const x = NOTES.byId[S.view.id]; if (!x || !x.n.body) { S.view = null; return render(); }
+  const sib = x.dz.notes.filter(n => n.body); const k = sib.indexOf(x.n); const prev = sib[k - 1], next = sib[k + 1];
+  const nav = `<div class="nnav">${prev ? `<button class="btn sm" data-act="noteOpen" data-id="${prev.id}">← ${esc(prev.title)}</button>` : "<span></span>"}${next ? `<button class="btn sm" data-act="noteOpen" data-id="${next.id}">${esc(next.title)} →</button>` : ""}</div>`;
+  root.innerHTML = frame(`<div class="head"><div><button class="btn sm ghost" data-act="back" style="justify-self:start">← Wszystkie notatki</button><p class="eyebrow">${esc(x.sj.name)} · ${esc(x.lv.name.split(" – ")[0])} · ${esc(x.dz.name)}</p><h1>${esc(x.n.title)}</h1></div>
+  <div class="acts"><button class="btn primary" data-act="notePrint">🖨 Drukuj / PDF</button></div></div>
+  <article class="md note">${noteHtml(x.n.body)}</article>${nav}`);
+}
+function printNote() {
+  const x = NOTES && NOTES.byId[S.view.id]; if (!x) return;
+  let pa = document.getElementById("printArea"); if (!pa) { pa = document.createElement("div"); pa.id = "printArea"; document.body.appendChild(pa); }
+  pa.innerHTML = `<div class="pbrand"><span>PEWNY EGZAMIN</span><span>${esc(x.sj.name)} · ${esc(x.dz.name)}</span></div><h1>${esc(x.n.title)}</h1><div class="md note">${noteHtml(x.n.body, { print: true })}</div>`;
+  const old = document.title; document.title = (x.n.title + " – notatka").replace(/[:·„”]/g, "").replace(/\s+/g, " ");
+  setTimeout(() => { window.print(); document.title = old; }, 80);
+}
+function noteCheck(id) {
+  const inp = root.querySelector(`[data-nin="${id}"]`), out = root.querySelector(`[data-nres="${id}"]`); if (!inp || !out) return;
+  const v = mathNorm(inp.value); const acc = JSON.parse(inp.dataset.acc || "[]").map(mathNorm);
+  out.hidden = false; if (!inp.value.trim()) { out.className = "nres"; out.textContent = "Wpisz odpowiedź."; return; }
+  const ok = acc.includes(v); out.className = "nres " + (ok ? "ok" : "bad"); out.textContent = ok ? "Dobrze! 🎉" : "Jeszcze nie – spróbuj ponownie albo zobacz odpowiedź.";
+}
+(function () { const st = document.createElement("style"); st.textContent = `.note{max-width:820px}.note mark{background:#fff1a8;padding:0 2px;border-radius:3px}.note u{text-decoration-color:var(--accent);text-decoration-thickness:2px;text-underline-offset:3px}
+.nmath{overflow-x:auto;padding:4px 0}.nbox{border-radius:12px;padding:12px 16px;display:grid;gap:8px;border:1px solid var(--line);background:var(--surface)}.nbox h3{margin:0;font-size:16px}.nbox p,.nbox ul,.nbox ol{margin:0}
+.nbox.wzor{background:var(--accent-soft);border:2px solid var(--accent)}.nbox.wzor h3{color:var(--accent)}.nbox.uwaga{background:var(--bad-soft);border-color:#efb7b2}.nbox.uwaga h3{color:var(--bad)}
+.nbox.przyklad{background:#eef6ff;border-color:#bcd6f5}.nbox.przyklad h3{color:#1d4f91}.nbox.krok{background:var(--mustard-soft);border-color:#ecd28b}.nbox.krok h3{color:var(--mustard-ink)}
+.nbox.wazne{background:var(--ok-soft);border-color:#a9d8bb}.nbox.wazne h3{color:var(--ok)}.nbox.sprawdz{background:var(--bg);border:2px dashed var(--line)}
+.nchk{display:grid;gap:14px;padding-left:22px}.nchkrow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px}.nchkrow input{max-width:220px}.nres{font-weight:600;font-size:14px;margin-top:4px}.nres.ok{color:var(--ok)}.nres.bad{color:var(--bad)}.nans{margin-top:4px;background:var(--surface);border-radius:8px;padding:6px 10px}
+.nnav{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;max-width:820px;margin:18px 0 8px}.ndz summary{display:flex;gap:10px;align-items:center;cursor:pointer;list-style:none}.ndz summary::-webkit-details-marker{display:none}.ndz summary b{flex:1}.ndz .list{margin-top:10px}
+@media print{#undoBtn{display:none!important}#printArea .nbox{break-inside:avoid;border-width:1px;-webkit-print-color-adjust:exact;print-color-adjust:exact}#printArea .nbox.sprawdz.pans{break-before:page}#printArea .nprline{border-bottom:1px dotted #999;height:22px}#printArea .note{gap:8px}#printArea mark{-webkit-print-color-adjust:exact;print-color-adjust:exact}}`; document.head.appendChild(st); })();
 function renderMat() {
   const m = S.data.materials[S.view.id]; if (!m) { S.view = null; return render(); }
   root.innerHTML = frame(`<div class="head"><div><button class="btn sm ghost" data-act="back" style="justify-self:start">← Wróć</button><p class="eyebrow">${esc((MAT_CATS.find(c => c[0] === m.category) || ["", ""])[1])}</p><h1>${esc(m.title)}</h1></div>
@@ -1739,6 +1837,7 @@ const SS = { get(k) { try { return JSON.parse(sessionStorage.getItem(k) || "null
 function viewDesc() {
   const v = S.view; if (!v) return null;
   if (v.type === "mat") return { k: "m", id: v.id, from: v.from };
+  if (v.type === "note") return { k: "n", id: v.id };
   if (v.type === "test" && v.assignment && v.mode === "result" && v.who) return { k: "r", id: v.assignment.id };
   if (v.type === "test" && v.assignment) return { k: "a", id: v.assignment.id };
   if (v.type === "test" && v.mode === "key" && v.test) return { k: "t", id: v.test.id };
@@ -1746,6 +1845,7 @@ function viewDesc() {
 }
 function openView(d) {
   if (!d || !S.data) return false;
+  if (d.k === "n") { S.view = { type: "note", id: d.id }; loadNotes().then(() => { if (S.view && S.view.type === "note") { const y = window.scrollY; render(); window.scrollTo(0, y); } }); return true; }
   if (d.k === "m" && S.data.materials && S.data.materials[d.id]) { S.view = { type: "mat", id: d.id, showKey: false, from: d.from || S.tab }; return true; }
   if (d.k === "t" && S.data.tests[d.id]) { const t = S.data.tests[d.id]; S.view = { type: "test", mode: "key", test: { id: d.id, ...t }, answers: Object.fromEntries(t.questions.map((q, n) => [n, q.c])) }; return true; }
   const a = S.data.assignments[d.id]; if (!a) return false; const t = testForAssign(a); if (!t) return false; const r = S.data.results[a.id];
@@ -1757,9 +1857,11 @@ function openView(d) {
 }
 function restoreLoc() {
   if (LOC_DONE || !S.data) return; LOC_DONE = true;
+  const nk = location.hash.match(/^#notekey=([\w-]{20,})$/);
+  if (nk) { history.replaceState(null, "", location.pathname + "#notatki"); if (S.user.role === "admin") B.set("settings", "notes", { key: nk[1] }).then(() => { NOTES = null; NOTES_ERR = ""; toast("Notatki aktywowane ✓"); if (S.tab === "notatki") render(); }).catch(e => toast("Nie udało się aktywować notatek: " + (e.message || e))); }
   const st = SS.get("pe_loc") || {};
   if (S.user.role === "admin") loadLoc();
-  if (st.uid === S.user.uid) { if (st.view) openView(st.view); S.reopenStudent = st.modal || null; S.restoreAt = st.at || null; }
+  if (st.uid === S.user.uid) { if (st.stab) S.stab = st.stab; if (st.view) openView(st.view); S.reopenStudent = st.modal || null; S.restoreAt = st.at || null; }
 }
 function afterRestoreRender() {
   if (S.reopenStudent && S.user.role === "admin" && S.data.students[S.reopenStudent]) { const sid = S.reopenStudent; S.reopenStudent = null; studentModal(S.data.students[sid]); }
@@ -1770,7 +1872,7 @@ function afterRestoreRender() {
 }
 const anchors = () => [...document.querySelectorAll("#app .q, #app .panel, #app .row, #app tr, #app h2, #app h1")];
 function anchorNow() { const L = anchors(); for (let i = 0; i < L.length; i++) { const r = L[i].getBoundingClientRect(); if (r.bottom > 60) return { i, off: Math.round(r.top) }; } return null; }
-function saveState() { if (!LOC_DONE || !S.user) return; SS.set("pe_loc", { uid: S.user.uid, view: viewDesc(), modal: S.openStudent || null, at: window.scrollY > 30 ? anchorNow() : null }); }
+function saveState() { if (!LOC_DONE || !S.user) return; SS.set("pe_loc", { uid: S.user.uid, view: viewDesc(), stab: S.stab || null, modal: S.openStudent || null, at: window.scrollY > 30 ? anchorNow() : null }); }
 let _scT = 0; window.addEventListener("scroll", () => { clearTimeout(_scT); _scT = setTimeout(saveState, 250); }, { passive: true });
 window.addEventListener("pagehide", saveState);
 function saveLoc() {
@@ -1802,9 +1904,10 @@ function render() {
   saveLoc();
   if (S.view && S.view.type === "test") return renderTest();
   if (S.view && S.view.type === "mat") return renderMat();
+  if (S.view && S.view.type === "note") return renderNote();
   const t = S.tab;
   S.lastSub[groupOf(t)[0]] = t;
-  const html = subNav() + (t === "dzis" ? renderDzis() : t === "kalendarz" ? renderKalendarz() : t === "wplaty" ? renderWplaty() : t === "zgory" ? renderZgory() : t === "zadania" ? renderZadania() : t === "testy" ? renderTesty() : t === "uczniowie" ? renderUczniowie() : t === "ustawienia" ? renderUstawienia() : t === "matematyka" ? renderMatematyka() : t === "materialy" ? renderMaterialy() : t === "platnosci" ? renderPlatnosci() : renderMaturzysci());
+  const html = subNav() + (t === "dzis" ? renderDzis() : t === "kalendarz" ? renderKalendarz() : t === "wplaty" ? renderWplaty() : t === "zgory" ? renderZgory() : t === "zadania" ? renderZadania() : t === "testy" ? renderTesty() : t === "notatki" ? renderNotatki() : t === "uczniowie" ? renderUczniowie() : t === "ustawienia" ? renderUstawienia() : t === "matematyka" ? renderMatematyka() : t === "materialy" ? renderMaterialy() : t === "platnosci" ? renderPlatnosci() : renderMaturzysci());
   root.innerHTML = frame(html);
   applyFilter("testy"); applyFilter("mat"); applyFilter("ucz"); wireKind(root);
 }
@@ -1833,6 +1936,13 @@ root.addEventListener("click", async e => {
     else if (act === "delPay") { if (!(await ask("Usunąć tę wpłatę?", "Usuń"))) return; await B.del("payments", el.dataset.id); delete S.data.payments[el.dataset.id]; render(); }
     else if (act === "openMat") { S.view = { type: "mat", id: el.dataset.id, showKey: false, from: S.tab }; render(); window.scrollTo(0, 0); }
     else if (act === "printMat") printMat(el.dataset.key === "1");
+    else if (act === "stab") { S.stab = el.dataset.k; saveState(); render(); window.scrollTo(0, 0); }
+    else if (act === "nSj") { NSTATE.set({ sj: el.dataset.id, lv: null }); render(); }
+    else if (act === "nLv") { NSTATE.set({ lv: el.dataset.id }); render(); }
+    else if (act === "noteOpen") { S.view = { type: "note", id: el.dataset.id, from: S.tab }; render(); window.scrollTo(0, 0); }
+    else if (act === "notePrint") printNote();
+    else if (act === "nCheck") noteCheck(el.dataset.id);
+    else if (act === "nShow") { const a = root.querySelector(`[data-nans="${el.dataset.id}"]`); if (a) a.hidden = !a.hidden; }
     else if (act === "toggleKey") { S.view.showKey = !S.view.showKey; const y = window.scrollY; render(); window.scrollTo(0, y); }
     else if (act === "matCat") { S.matCat = el.dataset.k; render(); }
     else if (act === "engView") { S.engView = el.dataset.k; render(); }
@@ -1909,6 +2019,7 @@ root.addEventListener("click", async e => {
   } catch (err) { console.error(err); toast(errMsg(err)); }
 });
 root.addEventListener("input", e => {
+  if (e.target.matches("[data-nsearch]")) { S.q.notes = e.target.value; const pos = e.target.selectionStart; render(); const n = root.querySelector("[data-nsearch]"); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (er) { } } return; }
   const ds = e.target.dataset || {};
   if ((ds.txt !== undefined || ds.essay !== undefined) && S.view && S.view.mode === "take") {
     const n = ds.txt ?? ds.essay; S.view.answers[n] = e.target.value;
