@@ -241,10 +241,10 @@ async function loadStudent(light) {
 }
 
 /* ---------------- ramka ---------------- */
-const ADMIN_TABS = [["dzis", "Dziś"], ["kalendarz", "Kalendarz"], ["uczniowie", "Uczniowie"], ["platnosci", "Płatności"], ["zgory", "Rozliczenie z góry"], ["zadania", "Zadania domowe"], ["maturzysci", "Matura angielski"], ["matematyka", "Matura matematyka"], ["materialy", "Materiały"], ["testy", "Bank testów"], ["notatki", "Notatki"], ["ustawienia", "Ustawienia"]];
+const ADMIN_TABS = [["dzis", "Dziś"], ["kalendarz", "Kalendarz"], ["uczniowie", "Uczniowie"], ["platnosci", "Płatności"], ["zgory", "Rozliczenie z góry"], ["zadania", "Zadania domowe"], ["maturzysci", "Matura angielski"], ["matematyka", "Matura matematyka"], ["materialy", "Materiały"], ["testy", "Bank testów"], ["notatki", "Notatki"], ["sklep", "Sklep"], ["ustawienia", "Ustawienia"]];
 ADMIN_TABS.push(["wplaty", "Ostatnie wpłaty"]);
-const NAV_GROUPS = [["dzis", "Dziś", ["dzis"]], ["kalendarz", "Kalendarz", ["kalendarz"]], ["uczniowie", "Uczniowie", ["uczniowie"]], ["platnosci", "Płatności", ["platnosci", "zgory", "wplaty"]], ["zad", "Zadania i materiały", ["zadania", "materialy", "testy", "notatki"]], ["matura", "Matura", ["maturzysci", "matematyka"]], ["ustawienia", "Ustawienia", ["ustawienia"]]];
-const SUB_LABELS = { zadania: "Zadania domowe", materialy: "Materiały", testy: "Bank testów", notatki: "Notatki", maturzysci: "Angielski", matematyka: "Matematyka" };
+const NAV_GROUPS = [["dzis", "Dziś", ["dzis"]], ["kalendarz", "Kalendarz", ["kalendarz"]], ["uczniowie", "Uczniowie", ["uczniowie"]], ["platnosci", "Płatności", ["platnosci", "zgory", "wplaty"]], ["zad", "Zadania i materiały", ["zadania", "materialy", "testy", "notatki", "sklep"]], ["matura", "Matura", ["maturzysci", "matematyka"]], ["ustawienia", "Ustawienia", ["ustawienia"]]];
+const SUB_LABELS = { zadania: "Zadania domowe", materialy: "Materiały", testy: "Bank testów", notatki: "Notatki", sklep: "Sklep", maturzysci: "Angielski", matematyka: "Matematyka" };
 const groupOf = t => NAV_GROUPS.find(g => g[2].includes(t)) || NAV_GROUPS[0];
 S.lastSub = {};
 function subNav() { const g = groupOf(S.tab); if (g[0] !== "zad" && g[0] !== "matura") return ""; return `<div class="subtabs" role="tablist" style="margin-bottom:4px">${g[2].map(k => `<button data-act="tab" data-k="${k}" aria-selected="${S.tab === k}">${SUB_LABELS[k]}</button>`).join("")}</div>`; }
@@ -511,6 +511,7 @@ function renderStudent() {
   if (S.view && S.view.type === "test") return renderTest();
   if (S.view && S.view.type === "note") return renderNote();
   if (S.stab === "notatki") { root.innerHTML = frame(renderNotatki()); return; }
+  if (S.stab === "sklep") { root.innerHTML = frame(renderSklep()); return; }
   const as = Object.values(S.data.assignments).filter(a => !isFuture(a)).sort((a, b) => (a.due || "").localeCompare(b.due || ""));
   const arch = as.filter(isArch).reverse(); const live = as.filter(a => !isArch(a));
   const todo = live.filter(a => !resultFor(a.id)).sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999")), done = live.filter(a => resultFor(a.id)).reverse();
@@ -1092,7 +1093,19 @@ function noteHtml(src, opts = {}) {
 }
 const NSTATE = { get() { try { return JSON.parse(localStorage.getItem("pe_notes_ui") || "{}"); } catch (e) { return {}; } }, set(o) { try { localStorage.setItem("pe_notes_ui", JSON.stringify({ ...NSTATE.get(), ...o })); } catch (e) { } } };
 function notesShell(inner) { return S.user.role === "admin" ? inner : stuTabs() + inner; }
-function stuTabs() { const t = S.stab || "zad"; return `<div class="subtabs" role="tablist" style="margin:4px 0 14px"><button data-act="stab" data-k="zad" aria-selected="${t === "zad"}">📋 Moje zadania</button><button data-act="stab" data-k="notatki" aria-selected="${t === "notatki"}">📚 Notatki</button></div>`; }
+function stuTabs() { const t = S.stab || "zad"; return `<div class="subtabs" role="tablist" style="margin:4px 0 14px"><button data-act="stab" data-k="zad" aria-selected="${t === "zad"}">📋 Moje zadania</button><button data-act="stab" data-k="notatki" aria-selected="${t === "notatki"}">📚 Notatki</button>${(window.PE_SHOP || {}).items ? `<button data-act="stab" data-k="sklep" aria-selected="${t === "sklep"}">🛒 Sklep</button>` : ""}</div>`; }
+const zlp = v => v.toLocaleString("pl-PL", { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 }) + " zł";
+function renderSklep() {
+  const SH = window.PE_SHOP || { items: [] }; const groups = [...new Set(SH.items.map(x => x.group))];
+  const card = x => `<a class="shopcard" href="${esc(x.url)}" target="_blank" rel="noopener">${x.img ? `<img src="${esc(x.img)}" alt="" loading="lazy">` : '<div class="shopimg"></div>'}<div class="shopbody"><b>${esc(x.name)}</b><span class="small muted">${esc(x.desc)}</span>
+    <div class="shopfoot"><span class="shopprice">${zlp(x.price)}${x.regular > x.price ? ` <s class="muted small">${zlp(x.regular)}</s>` : ""}</span><span class="btn sm primary">Zobacz w sklepie ↗</span></div></div></a>`;
+  const h = `<div class="head"><div><p class="eyebrow">PEWNY EGZAMIN</p><h1>Sklep</h1></div><div class="acts"><a class="btn" href="${esc(SH.url || "https://pewnyegzamin.com/sklep/")}" target="_blank" rel="noopener">Cały sklep ↗</a></div></div>
+  <p class="small muted" style="margin:-4px 0 12px">Kursy i notatki, które przygotowałam. Kliknięcie otwiera produkt w sklepie pewnyegzamin.com.</p>
+  ${groups.map(g => `<section style="display:grid;gap:10px;margin-bottom:18px"><h2 style="margin:0">${esc(g)}</h2><div class="shopgrid">${SH.items.filter(x => x.group === g).map(card).join("")}</div></section>`).join("")}`;
+  return S.user.role === "admin" ? h : stuTabs() + h;
+}
+(function () { const st = document.createElement("style"); st.textContent = `.shopgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}.shopcard{display:grid;grid-template-rows:auto 1fr;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--surface);color:inherit;text-decoration:none;transition:transform .15s,box-shadow .15s}.shopcard:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.08)}
+.shopcard img,.shopimg{width:100%;aspect-ratio:4/3;object-fit:cover;background:var(--accent-soft)}.shopbody{display:grid;gap:6px;padding:12px 14px;align-content:start}.shopfoot{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px}.shopprice{font-weight:700;font-size:17px;color:var(--accent)}.shopbody .small{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}@media (max-width:600px){.shopcard img,.shopimg{aspect-ratio:16/9}}`; document.head.appendChild(st); })();
 function renderNotatki() {
   if (!NOTES) { const h = `<div class="head"><div><p class="eyebrow">Teoria, wzory i przykłady</p><h1>Notatki</h1></div></div><p class="empty">${NOTES_ERR ? esc(NOTES_ERR) : "Wczytywanie notatek…"}</p>`;
     if (!NOTES_ERR) loadNotes().then(() => { if (!S.view && (S.tab === "notatki" || S.stab === "notatki")) render(); });
@@ -1907,7 +1920,7 @@ function render() {
   if (S.view && S.view.type === "note") return renderNote();
   const t = S.tab;
   S.lastSub[groupOf(t)[0]] = t;
-  const html = subNav() + (t === "dzis" ? renderDzis() : t === "kalendarz" ? renderKalendarz() : t === "wplaty" ? renderWplaty() : t === "zgory" ? renderZgory() : t === "zadania" ? renderZadania() : t === "testy" ? renderTesty() : t === "notatki" ? renderNotatki() : t === "uczniowie" ? renderUczniowie() : t === "ustawienia" ? renderUstawienia() : t === "matematyka" ? renderMatematyka() : t === "materialy" ? renderMaterialy() : t === "platnosci" ? renderPlatnosci() : renderMaturzysci());
+  const html = subNav() + (t === "dzis" ? renderDzis() : t === "kalendarz" ? renderKalendarz() : t === "wplaty" ? renderWplaty() : t === "zgory" ? renderZgory() : t === "zadania" ? renderZadania() : t === "testy" ? renderTesty() : t === "notatki" ? renderNotatki() : t === "sklep" ? renderSklep() : t === "uczniowie" ? renderUczniowie() : t === "ustawienia" ? renderUstawienia() : t === "matematyka" ? renderMatematyka() : t === "materialy" ? renderMaterialy() : t === "platnosci" ? renderPlatnosci() : renderMaturzysci());
   root.innerHTML = frame(html);
   applyFilter("testy"); applyFilter("mat"); applyFilter("ucz"); wireKind(root);
 }
