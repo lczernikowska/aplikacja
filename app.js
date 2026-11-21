@@ -697,7 +697,7 @@ function renderCards() {
   const head = `<div class="head"><div><button class="btn sm ghost" data-act="back" style="justify-self:start">← Wróć</button><p class="eyebrow">Fiszki · ${esc(t.topic || "")}${t.level ? " · " + esc(t.level) : ""}</p><h1>${esc(t.title)}</h1>${v.who ? `<p class="muted">${esc(v.who)}</p>` : ""}</div>${v.mode === "key" && S.user.role === "admin" && !S.preview ? `<div class="acts"><button class="btn primary" data-act="giveTest" data-id="${esc(t.id)}">Zadaj uczniowi</button></div>` : ""}</div>`;
   const list = ix => `<div class="tablewrap"><table><thead><tr><th>Angielski</th><th>Polski</th></tr></thead><tbody>${ix.map(i => `<tr><td><b>${esc(Q[i].f)}</b></td><td>${esc(Q[i].b)}</td></tr>`).join("")}</tbody></table></div>`;
   let body = "";
-  if (v.mode === "key") body = `<div class="notice small">Podgląd zestawu: ${Q.length} fiszek. Uczeń przegląda je po jednej, odwraca i zaznacza „Umiem” albo „Jeszcze nie”. Fiszki, których nie umie, wracają na koniec, aż przerobi wszystkie.</div><section class="panel">${list(Q.map((_, i) => i))}</section>`;
+  if (v.mode === "key") body = `<div class="notice small">Podgląd zestawu: ${Q.length} fiszek. Uczeń przegląda je po jednej, odwraca i zaznacza „Umiem” albo „Jeszcze nie” (pomyłkę może cofnąć przyciskiem „Odznacz”). Fiszki, których nie umie, wracają na koniec, aż przerobi wszystkie.</div><section class="panel">${list(Q.map((_, i) => i))}</section>`;
   else if (v.mode === "result" && !v.fc) {
     const r = v.result || {}; const hard = r.hard || [];
     body = `<div class="scorecard"><span class="score">${r.score}/${r.max}</span><div><b>${pct(r.score, r.max)}% za pierwszym razem</b><p class="small muted">Zestaw przerobiony do końca${r.rounds ? ` · ${r.rounds} ${r.rounds === 1 ? "runda" : r.rounds < 5 ? "rundy" : "rund"}` : ""}. ${hard.length ? `Trudne słówka: ${hard.length}.` : "Wszystkie słówka umiane od razu!"}</p></div></div>
@@ -710,13 +710,13 @@ function renderCards() {
       body = `<div class="fcbar"><span class="muted small">${f.practice ? "Powtórka (wynik się nie zapisuje) · " : ""}Umiem: <b>${f.known}/${f.total}</b> · zostało ${f.queue.length}</span><span class="pills" style="margin:0"><button data-act="fcDir" data-k="pl" aria-pressed="${f.dir === "pl"}">PL → EN</button><button data-act="fcDir" data-k="en" aria-pressed="${f.dir === "en"}">EN → PL</button></span></div>
       <div class="fcprog"><span style="width:${Math.round(f.known / f.total * 100)}%"></span></div>
       <button class="fcard${f.flipped ? " on" : ""}" data-act="fcFlip" aria-label="Odwróć fiszkę"><span class="fcside">${f.flipped ? "" : `<span class="small muted">${f.dir === "pl" ? "po angielsku?" : "po polsku?"}</span>`}<b>${esc(front)}</b>${f.flipped ? `<span class="fcback">${esc(back)}</span>` : `<span class="small muted">kliknij, żeby odwrócić</span>`}</span></button>
-      <div class="fcbtns">${f.flipped ? `<button class="btn" data-act="fcNo">✗ Jeszcze nie</button><button class="btn primary" data-act="fcYes">✓ Umiem</button>` : `<button class="btn primary" data-act="fcFlip">Pokaż odpowiedź</button>`}</div>`;
+      <div class="fcbtns">${f.flipped ? `<button class="btn" data-act="fcNo">✗ Jeszcze nie</button><button class="btn primary" data-act="fcYes">✓ Umiem</button>` : `<button class="btn primary" data-act="fcFlip">Pokaż odpowiedź</button>`}</div>${f.hist && f.hist.length ? `<div style="text-align:center;margin-top:10px"><button class="btn sm ghost" data-act="fcUndo" title="Cofnij ostatnie „Umiem” / „Jeszcze nie”">↶ Odznacz ostatnią</button></div>` : ""}`;
     }
   }
   root.innerHTML = frame(`${head}${body}`);
 }
 async function fcAnswer(ok) {
-  const v = S.view, f = v.fc; const i = f.queue.shift();
+  const v = S.view, f = v.fc; (f.hist = f.hist || []).push({ queue: f.queue.slice(), known: f.known, miss: { ...f.miss } }); if (f.hist.length > 50) f.hist.shift(); const i = f.queue.shift();
   if (ok) f.known++; else { f.miss[i] = (f.miss[i] || 0) + 1; f.queue.push(i); }
   f.flipped = false;
   if (!f.queue.length) {
@@ -1995,6 +1995,7 @@ root.addEventListener("click", async e => {
     else if (act === "fcFlip") { S.view.fc.flipped = !S.view.fc.flipped; renderCards(); }
     else if (act === "fcYes") await fcAnswer(true);
     else if (act === "fcNo") await fcAnswer(false);
+    else if (act === "fcUndo") { const f = S.view.fc, h = f && f.hist && f.hist.pop(); if (h) { f.queue = h.queue; f.known = h.known; f.miss = h.miss; f.flipped = true; renderCards(); } }
     else if (act === "fcDir") { S.view.fc.dir = el.dataset.k; S.view.fc.flipped = false; renderCards(); }
     else if (act === "fcAgain") { const r = S.view.result || {}; const ix = el.dataset.k === "hard" && (r.hard || []).length ? r.hard : S.view.test.questions.map((_, i) => i); fcStart(ix, true); renderCards(); window.scrollTo(0, 0); }
     else if (act === "saveDraft") draftSave(false);
