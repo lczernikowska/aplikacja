@@ -1066,7 +1066,7 @@ function noteHtml(src, opts = {}) {
   let t = String(src || "").replace(/\r/g, "");
   t = t.replace(/\$\$([\s\S]+?)\$\$/g, (m, x) => "\n\n" + ph(`<div class="nmath">${katexOf(x.trim(), true)}</div>`) + "\n\n");
   t = t.replace(/\$([^$\n]+?)\$/g, (m, x) => ph(katexOf(x, false)));
-  const BOX = { wzor: ["Wzór", "📐"], uwaga: ["Uwaga", "⚠️"], przyklad: ["Przykład", "✏️"], krok: ["Krok po kroku", "🪜"], wazne: ["Zapamiętaj", "⭐"] };
+  const BOX = { wzor: ["Wzór", "📐"], uwaga: ["Uwaga", "⚠️"], przyklad: ["Przykład", "✏️"], krok: ["Krok po kroku", "🪜"], wazne: ["Zapamiętaj", "⭐"], regula: ["Reguła", "📘"], slowka: ["Słowa-klucze", "🔑"] };
   const parts = []; const L = t.split("\n"); let buf = [];
   const flush = () => { if (buf.length) { parts.push({ md: buf.join("\n") }); buf = []; } };
   for (let i = 0; i < L.length; i++) {
@@ -1087,7 +1087,7 @@ function noteHtml(src, opts = {}) {
         <div class="nres" data-nres="${id}" hidden></div><div class="nans" data-nans="${id}" hidden>Odpowiedź: ${inl(x.a)}</div></li>`; }).join("")}</ol></section>`;
     }
     const [lab, ico] = BOX[p.box] || ["", "•"];
-    return `<section class="nbox ${p.box}"><h3>${ico} ${inl(p.title || lab)}</h3>${md(p.body.join("\n"))}</section>`;
+    return `<section class="nbox ${p.box === "regula" ? "wzor regula" : p.box === "slowka" ? "wazne slowka" : p.box}"><h3>${ico} ${inl(p.title || lab)}</h3>${md(p.body.join("\n"))}</section>`;
   }).join("");
   return html.replace(/<p>\s*(\u0001\d+\u0002)\s*<\/p>/g, "$1").replace(/==(.+?)==/g, "<mark>$1</mark>").replace(/__(.+?)__/g, "<u>$1</u>").replace(/\u0001(\d+)\u0002/g, (m, k) => M[+k]);
 }
@@ -1120,7 +1120,7 @@ function renderNotatki() {
   <div class="pills">${NOTES.subjects.map(x => `<button data-act="nSj" data-id="${x.id}" aria-pressed="${x.id === sj.id}">${esc(x.name)}</button>`).join("")}${NOTES.subjects.length < 2 ? '<button disabled aria-pressed="false" title="wkrótce">Angielski – wkrótce</button>' : ""}</div>
   <div class="seg" style="margin:10px 0">${sj.levels.map(l => `<button data-act="nLv" data-id="${l.id}" aria-pressed="${l.id === lv.id}">${esc(l.name)}</button>`).join("")}</div>
   ${lv.info ? `<p class="small muted" style="margin:0 0 8px">${esc(lv.info)}</p>` : ""}
-  <label class="f" style="max-width:520px"><span class="eyebrow">Szukaj w notatkach</span><input type="search" data-nsearch value="${esc(S.q.notes || "")}" placeholder="np. logarytm, delta, mediana" autocomplete="off"></label>
+  <label class="f" style="max-width:520px"><span class="eyebrow">Szukaj w notatkach</span><input type="search" data-nsearch value="${esc(S.q.notes || "")}" placeholder="${sj.id === "ang" ? "np. present perfect, since, rozprawka" : "np. logarytm, delta, mediana"}" autocomplete="off"></label>
   <div data-nlist style="display:grid;gap:12px;margin-top:12px">${list}</div>`);
 }
 function renderNote() {
@@ -1141,7 +1141,7 @@ function printNote() {
 }
 function noteCheck(id) {
   const inp = root.querySelector(`[data-nin="${id}"]`), out = root.querySelector(`[data-nres="${id}"]`); if (!inp || !out) return;
-  const v = mathNorm(inp.value); const acc = JSON.parse(inp.dataset.acc || "[]").map(mathNorm);
+  const nn = x => mathNorm(String(x).replace(/[’‘`]/g, "'").replace(/[.!]+\s*$/, "")); const v = nn(inp.value); const acc = JSON.parse(inp.dataset.acc || "[]").map(nn);
   out.hidden = false; if (!inp.value.trim()) { out.className = "nres"; out.textContent = "Wpisz odpowiedź."; return; }
   const ok = acc.includes(v); out.className = "nres " + (ok ? "ok" : "bad"); out.textContent = ok ? "Dobrze! 🎉" : "Jeszcze nie – spróbuj ponownie albo zobacz odpowiedź.";
 }
