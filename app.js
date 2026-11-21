@@ -1080,7 +1080,7 @@ function noteHtml(src, opts = {}) {
   const html = parts.map(p => {
     if ("md" in p) return md(p.md);
     if (p.box === "sprawdz") {
-      const items = p.body.filter(l => /^-\s/.test(l)).map(l => { const m = l.replace(/^-\s+/, "").match(/^(.*?)\s*=>\s*(.*?)\s*(?:\[([^\]]*)\])?$/); return m ? { q: m[1], a: m[2], acc: (m[3] || "").split("|").map(x => x.trim()).filter(Boolean) } : null; }).filter(Boolean);
+      const items = p.body.filter(l => /^-\s/.test(l)).map(l => { const m = l.replace(/^-\s+/, "").match(/^(.*?)\s*=>\s*(.*?)\s*(?:;;\s*(.*))?$/); return m ? { q: m[1], a: m[2], acc: (m[3] || "").split("|").map(x => x.trim()).filter(Boolean) } : null; }).filter(Boolean);
       if (opts.print) return `<section class="nbox sprawdz"><h3>✅ Sprawdź się</h3><ol>${items.map(x => `<li>${inl(x.q)}<div class="nprline"></div></li>`).join("")}</ol></section><section class="nbox sprawdz pans"><h3>Odpowiedzi do „Sprawdź się”</h3><ol>${items.map(x => `<li>${inl(x.a)}</li>`).join("")}</ol></section>`;
       return `<section class="nbox sprawdz"><h3>✅ Sprawdź się <span class="small muted" style="font-weight:400">– tylko dla Ciebie, nikt tego nie sprawdza</span></h3><ol class="nchk">${items.map(x => { const id = chk++; return `<li data-nq="${id}"><div>${inl(x.q)}</div>
         <div class="nchkrow">${x.acc.length ? `<input type="text" data-nin="${id}" data-acc="${esc(JSON.stringify(x.acc))}" placeholder="Twoja odpowiedź" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="button" class="btn sm" data-act="nCheck" data-id="${id}">Sprawdź</button>` : ""}<button type="button" class="btn sm ghost" data-act="nShow" data-id="${id}">Pokaż odpowiedź</button></div>
