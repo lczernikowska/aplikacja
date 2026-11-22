@@ -868,19 +868,19 @@ function mathStats(sid) {
   return { done: vals.length, avg: withPct.length ? Math.round(withPct.reduce((a, x) => a + x.pct, 0) / withPct.length) : null };
 }
 /* ---------- matury próbne: tabele wyników ---------- */
-const MATURA_RE = { mat: /^mat-\d{4}-\d{2}-pp$/, pp: /^ang-pp-\d{4}-\d{2}$/, pr: /^ang-pr-\d{4}-\d{2}$/, cmat: /^mat-p\d{4}-pp$/, cpp: /^ang-pp-p\d{4}$/, cpr: /^ang-pr-p\d{4}$/ };
-const MATURA_KEY = { mat: "mp", pp: "pp", pr: "pr", cmat: "cm", cpp: "cp", cpr: "cr" };
+const MATURA_RE = { e8: /^mat-e8-\d{4}-\d{2}$/, ce8: /^mat-e8-p\d{4}$/, mat: /^mat-\d{4}-\d{2}-pp$/, pp: /^ang-pp-\d{4}-\d{2}$/, pr: /^ang-pr-\d{4}-\d{2}$/, cmat: /^mat-p\d{4}-pp$/, cpp: /^ang-pp-p\d{4}$/, cpr: /^ang-pr-p\d{4}$/ };
+const MATURA_KEY = { e8: "e8", ce8: "ce", mat: "mp", pp: "pp", pr: "pr", cmat: "cm", cpp: "cp", cpr: "cr" };
 const isCke = k => k[0] === "c";
 const maturaLabel = (kind, n) => (isCke(kind) ? "Próbna CKE " : "Matura próbna ") + n;
-const MATURA_NAME = { M: "Matematyka – matury (maj–sierpień i próbne CKE)", P: "Angielski – matury, poziom podstawowy (maj–sierpień i próbne CKE)", R: "Angielski – matury, poziom rozszerzony (maj–sierpień i próbne CKE)", mat: "Matematyka – matury próbne", pp: "Angielski – matury próbne, poziom podstawowy", pr: "Angielski – matury próbne, poziom rozszerzony", cmat: "Matematyka – próbne CKE (grudzień / marzec)", cpp: "Angielski – próbne CKE (grudzień / marzec), poziom podstawowy", cpr: "Angielski – próbne CKE (grudzień / marzec), poziom rozszerzony" };
-const MATURA_GROUP = { M: ["mat", "cmat"], P: ["pp", "cpp"], R: ["pr", "cpr"] };
+const MATURA_NAME = { E: "Matematyka – egzamin ósmoklasisty (arkusze CKE i próbne CKE)", M: "Matematyka – matury (maj–sierpień i próbne CKE)", P: "Angielski – matury, poziom podstawowy (maj–sierpień i próbne CKE)", R: "Angielski – matury, poziom rozszerzony (maj–sierpień i próbne CKE)", mat: "Matematyka – matury próbne", pp: "Angielski – matury próbne, poziom podstawowy", pr: "Angielski – matury próbne, poziom rozszerzony", cmat: "Matematyka – próbne CKE (grudzień / marzec)", cpp: "Angielski – próbne CKE (grudzień / marzec), poziom podstawowy", cpr: "Angielski – próbne CKE (grudzień / marzec), poziom rozszerzony" };
+const MATURA_GROUP = { E: ["e8", "ce8"], M: ["mat", "cmat"], P: ["pp", "cpp"], R: ["pr", "cpr"] };
 const sheetYM = id => { const m = id.match(/(\d{4})-(\d{2})/) || id.match(/p(\d{2})(\d{2})/); return m ? (m[1].length === 2 ? "20" + m[1] : m[1]) + "-" + m[2] : id; };
-const sheetLabel = x => (x.cke ? "Próbna CKE " : "Matura ") + (x.when || "");
+const sheetLabel = x => (x.e8 ? (x.cke ? "Próbny egzamin ósmoklasisty CKE " : "Egzamin ósmoklasisty ") : x.cke ? "Próbna CKE " : "Matura ") + (x.when || "");
 function maturaSheets(kind) {
-  if (MATURA_GROUP[kind]) return MATURA_GROUP[kind].flatMap(k => maturaSheets(k).map(x => ({ ...x, cke: isCke(k), ym: sheetYM(x.id) }))).sort((a, b) => a.ym.localeCompare(b.ym)).map((x, i) => ({ ...x, n: i + 1 }));
+  if (MATURA_GROUP[kind]) return MATURA_GROUP[kind].flatMap(k => maturaSheets(k).map(x => ({ ...x, cke: isCke(k), e8: /e8$/.test(k), ym: sheetYM(x.id) }))).sort((a, b) => a.ym.localeCompare(b.ym)).map((x, i) => ({ ...x, n: i + 1 }));
   const src = (window.PE_ARKUSZE || []).filter(t => MATURA_RE[kind].test(t.id)).sort((a, b) => a.id.localeCompare(b.id));
-  return src.map((t, i) => { const m = String(t.adminTitle || "").match(/(?:Matura|CKE)\s+(\S+\s+\d{4})/i);
-    return { id: t.id, n: i + 1, key: MATURA_KEY[kind] + pad(i + 1), when: m ? m[1] : "", listen: !/mat$/.test(kind) && (window.PE_ARKUSZE || []).some(x => x.id === t.id + "-s") ? t.id + "-s" : null }; });
+  return src.map((t, i) => { const m = String(t.adminTitle || "").match(/(?:Matura|CKE|ósmoklasisty)\s+(\S+\s+\d{4})/i);
+    return { id: t.id, n: i + 1, key: MATURA_KEY[kind] + pad(i + 1), when: m ? m[1] : "", listen: !/mat$|e8$/.test(kind) && (window.PE_ARKUSZE || []).some(x => x.id === t.id + "-s") ? t.id + "-s" : null }; });
 }
 function appResultFor(sid, testId) {
   // ostatnie pełne podejście (nowe zadanie z całym testem nadpisuje starsze); „poprawa błędnych” się nie liczy – bierzemy wynik pierwszej wersji
@@ -905,10 +905,10 @@ function maturaCell(sid, sh, topics) {
 function maturaAvg(cells) { const c = cells.filter(Boolean); return c.length ? Math.round(c.reduce((a, x) => a + x.pct, 0) / c.length) : null; }
 function maturaTable(kind, list, progOf, selAct) {
   const sh = maturaSheets(kind); if (!sh.length) return "";
-  const eng = !/mat$|^M$/.test(kind);
+  const eng = !/mat$|^M$|^E$|e8$/.test(kind);
   const td = (c, i) => `<td title="${esc(sheetLabel(sh[i]))}${c ? ` · ${c.pts}/${c.max} pkt${c.part ? " · " + c.part : ""}${c.pend ? ` · ${c.pend} zad. otwartych czeka na ocenę – wynik niepełny` : ""}${c.fix ? ` · pierwsza wersja (po poprawie: ${c.fix.score}/${c.fix.max})` : ""}${c.app ? " · z aplikacji" : " · wpisane"}` : ""}">${c ? pctChip(c.pct) + (c.pend ? ' <span title="czeka na ocenę zadań otwartych">⏳</span>' : "") : '<span class="muted">–</span>'}</td>`;
   const line = (first, label, cells, strong) => { const av = maturaAvg(cells); return `<tr${strong ? ' style="font-weight:600"' : ""}>${first}${eng ? `<td class="small">${label}</td>` : ""}<td>${cells.filter(Boolean).length}/${sh.length}</td><td>${av === null ? "–" : pctChip(av)}</td>${cells.map(td).join("")}</tr>`; };
-  const rows = list.map(s => { const cells = sh.map(x => maturaCell(s.id, x, (progOf(s.id) || {}).topics)); const nm = `<button class="btn sm ghost" data-act="${selAct}" data-id="${s.id}">${esc(s.name)}</button>`;
+  const rows = list.map(s => { const cells = sh.map(x => maturaCell(s.id, x, (progOf(s.id) || {}).topics)); const nm = selAct ? `<button class="btn sm ghost" data-act="${selAct}" data-id="${s.id}">${esc(s.name)}</button>` : `<b class="small">${esc(s.name)}</b>`;
     if (!eng) return line(`<td>${nm}</td>`, "", cells);
     return line(`<td rowspan="3" style="vertical-align:top">${nm}</td>`, "zadania", cells.map(c => c ? (c.app ? c.zad : null) : null))
       + line("", "słuchanie", cells.map(c => c ? (c.app ? c.sl : null) : null))
@@ -927,12 +927,12 @@ function maturaRows(kind, sid, topics, attr) {
 }
 function studentMatury() {
   const me = S.data.me || {}; const out = [];
-  for (const kind of ["M", "P", "R"]) {
-    const topics = ((kind === "M" ? S.data.mathP : S.data.engP) || {}).topics || {};
+  for (const kind of ["E", "M", "P", "R"]) {
+    const topics = ((kind === "M" || kind === "E" ? S.data.mathP : S.data.engP) || {}).topics || {};
     const done = maturaSheets(kind).map(x => [x, maturaCell(me.id || S.user.studentId, x, topics)]).filter(([, c]) => c);
-    if (done.length) out.push(`<h3 style="margin:10px 0 4px">${{ M: "Matematyka", P: "Angielski – poziom podstawowy", R: "Angielski – poziom rozszerzony" }[kind]} <span class="small muted">· średnia ${maturaAvg(done.map(d => d[1]))}%</span></h3><div class="tablewrap"><table><thead><tr><th>Arkusz</th><th>Punkty</th><th>Wynik</th></tr></thead><tbody>${done.map(([x, c]) => `<tr><td>${esc(sheetLabel(x))}</td><td>${c.pts}/${c.max}${c.pend ? ' <span class="small muted">· czeka na ocenę zadań otwartych</span>' : ""}</td><td>${pctChip(c.pct)}</td></tr>`).join("")}</tbody></table></div>`);
+    if (done.length) out.push(`<h3 style="margin:10px 0 4px">${{ E: "Egzamin ósmoklasisty – matematyka", M: "Matematyka", P: "Angielski – poziom podstawowy", R: "Angielski – poziom rozszerzony" }[kind]} <span class="small muted">· średnia ${maturaAvg(done.map(d => d[1]))}%</span></h3><div class="tablewrap"><table><thead><tr><th>Arkusz</th><th>Punkty</th><th>Wynik</th></tr></thead><tbody>${done.map(([x, c]) => `<tr><td>${esc(sheetLabel(x))}</td><td>${c.pts}/${c.max}${c.pend ? ' <span class="small muted">· czeka na ocenę zadań otwartych</span>' : ""}</td><td>${pctChip(c.pct)}</td></tr>`).join("")}</tbody></table></div>`);
   }
-  return out.length ? `<section class="panel"><h2>Matury próbne – Twoje wyniki</h2>${out.join("")}</section>` : "";
+  return out.length ? `<section class="panel"><h2>Arkusze egzaminacyjne – Twoje wyniki</h2>${out.join("")}</section>` : "";
 }
 function renderMatematyka() {
   const list = Object.values(S.data.students).filter(s => s.mathMatura).sort((a, b) => a.name.localeCompare(b.name, "pl"));
@@ -951,7 +951,7 @@ function renderMatematyka() {
       return `<tr><td><button class="btn sm ghost" data-act="selM" data-id="${s.id}">${esc(s.name)}</button></td><td>${st.done}/${MATH_TOPICS.length}</td><td>${st.avg === null ? "–" : pctChip(st.avg)}</td>${MATH_TOPICS.map((_, i) => { const x = t[tkey(i)]; return `<td>${x && x.done ? (typeof x.pct === "number" ? pctChip(x.pct) : '<span class="chip ok">✓</span>') : '<span class="muted">–</span>'}</td>`; }).join("")}</tr>`; }).join("");
     return head + pills + `<section class="panel"><p class="small muted">Kliknij imię, żeby wpisać wyniki. Po najechaniu na skrót zobaczysz pełną nazwę działu. Zielone ≥ 70%, żółte 50–69%, czerwone &lt; 50%.</p><div class="tablewrap"><table class="compact"><thead><tr><th>Uczeń</th><th>Działy</th><th>Średnia</th>${MATH_TOPICS.map((n, i) => `<th title="${i + 1}. ${esc(n)}">${esc(MATH_SHORT[i])}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div></section>` + maturaTable("M", list, id => S.data.mathProgress[id], "selM") + `<section class="panel">${others.length ? addForm : ""}</section>`;
   }
-  if (S.selM === "__mat") return head + pills + `<section class="panel"><p class="small muted">Wyniki z aplikacji wpisują się same. Arkusz robiony na papierze wpisz u konkretnego ucznia (kliknij imię). Po najechaniu na wynik zobaczysz punkty i datę arkusza. Zielone ≥ 70%, żółte 50–69%, czerwone &lt; 50%.</p></section>` + maturaTable("M", list, id => S.data.mathProgress[id], "selM");
+  if (S.selM === "__mat") return head + pills + `<section class="panel"><p class="small muted">Wyniki z aplikacji wpisują się same. Arkusz robiony na papierze wpisz u konkretnego ucznia (kliknij imię). Po najechaniu na wynik zobaczysz punkty i datę arkusza. Zielone ≥ 70%, żółte 50–69%, czerwone &lt; 50%.</p></section>` + maturaTable("M", list, id => S.data.mathProgress[id], "selM") + (() => { const e8 = new Set(Object.values(S.data.assignments).filter(a => /^mat-e8-/.test(a.testId || "")).map(a => a.studentId)); const l8 = Object.values(S.data.students).filter(s => e8.has(s.id)).sort((a, b) => a.name.localeCompare(b.name, "pl")); return l8.length ? maturaTable("E", l8, id => S.data.mathProgress[id], "") : `<section class="panel"><h2>${MATURA_NAME.E}</h2><p class="small muted">Tabela pojawi się, gdy zadasz komuś arkusz egzaminu ósmoklasisty (np. w oknie „Seria”).</p></section>`; })();
   const s = S.data.students[S.selM]; const t = (S.data.mathProgress[s.id] || {}).topics || {}; const st = mathStats(s.id);
   const items = MATH_TOPICS.map((n, i) => { const k = tkey(i); const x = t[k] || {};
     return `<div class="row"><span class="num">${i + 1}</span><span class="grow"><b>${esc(n)}</b>${x.date ? `<span class="small muted">wpisane ${new Date(x.date).toLocaleDateString("pl-PL")}</span>` : ""}</span>
@@ -1756,19 +1756,19 @@ function renderZgory() {
 function seriesModal(s, redraw) {
   const ARK = Object.fromEntries((window.PE_ARKUSZE || []).map(x => [x.id, x.title])); const ttl = t => ARK[t.id] || t.title || "";
   const T = Object.values(S.data.tests); const num = t => { const m = ttl(t).match(/^(?:Fiszki|Czytanka) (\d+)/) || ttl(t).match(/^(?:Matura próbna|Próbna CKE)( \d+)? –/); return m ? +(m[1] || 1) : 0; };
-  const MP = (subj, L, sl) => t => t.subject === subj && t.level === L && /^(Matura próbna|Próbna CKE)/.test(ttl(t)) && /słuchanie/.test(ttl(t)) === sl;
+  const MP = (subj, L, sl) => t => t.subject === subj && t.level === L && /^(Matura próbna|Próbna CKE|Egzamin ósmoklasisty|Próbny egzamin ósmoklasisty)/.test(ttl(t)) && /słuchanie/.test(ttl(t)) === sl;
   const dkey = id => { let m = String(id).match(/-p(\d{4})/); if (m) return +m[1]; m = String(id).match(/-(\d{4})-(\d{2})/); return m ? (+m[1] % 100) * 100 + +m[2] : 0; };
   const matList = (subj, L, sl) => { const main = T.filter(MP(subj, L, false)).sort((a, b) => dkey(a.id) - dkey(b.id)); const pos = Object.fromEntries(main.map((t, i) => [t.id, i + 1])); const m = {};
     if (!sl) main.forEach((t, i) => { m[i + 1] = t; }); else T.filter(MP(subj, L, true)).forEach(t => { const n = pos[t.id.replace(/-s$/, "")]; if (n) m[n] = t; }); return m; };
   const GR = [["fPP", "Fiszki – podstawa", t => t.kind === "fiszki" && t.level === "PP" && /^ang-fiszki-pp-/.test(t.id)], ["fPR", "Fiszki – rozszerzenie", t => t.kind === "fiszki" && t.level === "PR" && /^ang-fiszki-pr-/.test(t.id)],
     ...["A2", "B1", "B2", "B2+", "C1"].map(L => ["c" + L, "Czytanki " + L, t => t.level === L && /^Czytanka \d+/.test(ttl(t))]),
-    ["mPP", "Matury – matematyka PP", ["mat", "PP", false]], ["aPP", "Matury – angielski PP", ["ang", "PP", false]], ["aPPs", "Matury – angielski PP, słuchanie", ["ang", "PP", true]], ["aPR", "Matury – angielski PR", ["ang", "PR", false]], ["aPRs", "Matury – angielski PR, słuchanie", ["ang", "PR", true]]];
+    ["mE8", "Egzaminy ósmoklasisty – matematyka", ["mat", "E8", false]], ["mPP", "Matury – matematyka PP", ["mat", "PP", false]], ["aPP", "Matury – angielski PP", ["ang", "PP", false]], ["aPPs", "Matury – angielski PP, słuchanie", ["ang", "PP", true]], ["aPR", "Matury – angielski PR", ["ang", "PR", false]], ["aPRs", "Matury – angielski PR, słuchanie", ["ang", "PR", true]]];
   const list = f => { if (Array.isArray(f)) return matList(...f); const m = {}; T.filter(f).forEach(t => { const n = num(t); if (n && !m[n]) m[n] = t; }); return m; };
   const G = GR.map(([k, l, f]) => ({ k, l, m: list(f) })).filter(g => Object.keys(g.m).length);
   const maxN = Math.max(...G.map(g => Math.max(...Object.keys(g.m).map(Number))));
   const ov = document.createElement("div"); ov.className = "ov";
   ov.innerHTML = `<div class="modal" role="dialog" aria-label="Seria zadań"><header><h2>Seria – ${esc(s.name)}</h2></header><form class="mb" data-sf>
-  ${[["Fiszki", /^f/], ["Czytanki", /^c/], ["Matury (maj–sierpień i próbne CKE, od najstarszej)", /^[ma]P/]].map(([h, re]) => { const gs = G.filter(g => re.test(g.k)); return gs.length ? `<div style="display:grid;gap:6px"><b class="small">${h}</b><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px 14px">${gs.map(g => `<label class="small" style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" name="${g.k}" style="width:18px;height:18px;flex:none;padding:0;accent-color:var(--accent)"><span>${esc(g.l.replace(/^(Fiszki|Czytanki|Matury) – |^Czytanki /, ""))} <span class="muted">(${Object.keys(g.m).length})</span></span></label>`).join("")}</div></div>` : ""; }).join("")}
+  ${[["Fiszki", /^f/], ["Czytanki", /^c/], ["Matury (maj–sierpień i próbne CKE, od najstarszej)", /^[ma]P/], ["Egzamin ósmoklasisty (arkusze CKE i próbne CKE, od najstarszego)", /^mE/]].map(([h, re]) => { const gs = G.filter(g => re.test(g.k)); return gs.length ? `<div style="display:grid;gap:6px"><b class="small">${h}</b><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px 14px">${gs.map(g => `<label class="small" style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" name="${g.k}" style="width:18px;height:18px;flex:none;padding:0;accent-color:var(--accent)"><span>${esc(g.l.replace(/^(Fiszki|Czytanki|Matury) – |^Czytanki /, ""))} <span class="muted">(${Object.keys(g.m).length})</span></span></label>`).join("")}</div></div>` : ""; }).join("")}
   <div class="frow"><label class="f">Od nr<input type="number" name="start" min="1" max="${maxN}" value="1"></label><label class="f">Do nr<input type="number" name="end" min="1" max="${maxN}" value="${maxN}"></label><label class="f">Co ile dni<input type="number" name="every" min="1" max="60" value="10"></label><label class="f">Pierwszy termin<input type="date" name="first" value="${addDays(today(), 10)}"></label></div>
   <p class="small muted" style="margin:0">Pozycje z tym samym numerem (np. fiszki 3 i czytanka 3, albo arkusz i jego słuchanie) mają ten sam termin. Matury idą od najstarszej, razem z próbnymi CKE z grudnia i marca. Uczeń widzi od razu wszystkie, ułożone po terminach. To, co już było zadane, jest pomijane bez zostawiania przerw w terminach.</p>
   <div data-dupw class="notice warn" hidden></div><label class="small" data-dupopt hidden style="display:flex;gap:6px;align-items:center"><input type="checkbox" name="redo" style="width:18px;height:18px;flex:none;padding:0">zadaj też powtórnie to, co już było zadane</label>
