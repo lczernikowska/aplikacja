@@ -217,6 +217,7 @@ async function loadAdmin(light) {
   if (TESTS_SYNCED) { await syncLocalTests(results0, true); return; }
   TESTS_SYNCED = true; await syncLocalTests(results0);
   setTimeout(() => trimRemovedResults().catch(e => console.warn("trim", e)), 8000);
+  setTimeout(async () => { for (const id of ["649759f3-6cfc-4b6a-9830-ab5a591ea703", "7b6a72ed-4d27-423c-a8fc-8eaac658a845"]) { const st = S.data.students && S.data.students[id]; if (st && st.hidePay === undefined) { try { await B.update("students", id, { hidePay: true }); st.hidePay = true; } catch (e) { console.warn("hidePay", e); } } } }, 3000);
 }
 /* Wyniki starszych matur: przelicz bez zadań usuniętych z arkuszy (poza wymaganiami od matury 2025). Raz na wynik (pole trim). */
 const TRIM_V = 1;
@@ -523,9 +524,9 @@ function renderStudent() {
   const bank = S.data.settings && S.data.settings.bank; const month = new Date().toLocaleDateString("pl-PL", { month: "long", year: "numeric" });
   const title = S.data.settings && S.data.settings.titleTpl ? S.data.settings.titleTpl.replace("{imie}", S.user.name).replace("{miesiac}", month) : "";
   const top = `<section class="panel"><h2>Najbliższa lekcja</h2>${nx.length ? `<p style="font-size:20px;font-weight:600">${esc(fmtDate(nx[0].date))}, ${esc(nx[0].time || "")} <span class="chip acc">${esc(SUBJ[nx[0].subject] || nx[0].subject || "")}</span></p>${nx.length > 1 ? `<p class="small muted">Potem: ${nx.slice(1).map(l => esc(fmtDate(l.date) + ", " + (l.time || ""))).join(" · ")}</p>` : ""}` : '<p class="empty">Brak zaplanowanych lekcji.</p>'}</section>
-  <section class="panel"><h2>Płatności</h2><div class="stats">${balanceBlock(b)}</div>
+  ${S.data.me && S.data.me.hidePay ? "" : `<section class="panel"><h2>Płatności</h2><div class="stats">${balanceBlock(b)}</div>
   ${b.pays.length ? `<div class="tablewrap"><table><thead><tr><th>Data wpłaty</th><th>Kwota</th></tr></thead><tbody>${b.pays.sort((x, y) => (y.date || "").localeCompare(x.date || "")).map(p => `<tr><td>${esc(fmtDate(p.date))}</td><td>${zl(Number(p.amount) || 0)}</td></tr>`).join("")}</tbody></table></div>` : ""}
-  ${bank && bank.account ? `<details><summary class="small" style="cursor:pointer;color:var(--accent);font-weight:600">Dane do przelewu</summary><p class="small" style="margin-top:8px">Odbiorca: ${esc(bank.recipient || "")}<br>Numer konta: <b style="user-select:all">${esc(bank.account)}</b>${title ? `<br>Tytuł: ${esc(title)}` : ""}</p></details>` : ""}</section>`;
+  ${bank && bank.account ? `<details><summary class="small" style="cursor:pointer;color:var(--accent);font-weight:600">Dane do przelewu</summary><p class="small" style="margin-top:8px">Odbiorca: ${esc(bank.recipient || "")}<br>Numer konta: <b style="user-select:all">${esc(bank.account)}</b>${title ? `<br>Tytuł: ${esc(title)}` : ""}</p></details>` : ""}</section>`}`;
   root.innerHTML = frame(`${installHint()}${stuTabs()}<div class="head"><div><p class="eyebrow">Twoje konto</p><h1>Cześć, ${esc(S.user.name.split(" ")[0])}!</h1></div></div>${top}${studentResults()}${studentMatury()}
   <section class="list"><h2>Do zrobienia</h2>${todo.length ? todo.map(card).join("") : '<p class="empty">Wszystko zrobione. 🎉</p>'}${(() => { const fut = Object.values(S.data.assignments).filter(a => isFuture(a) && !isArch(a)).map(a => a.from).sort(); return fut.length ? `<p class="small muted" style="margin:6px 2px">Zaplanowane: jeszcze ${fut.length} ${plural(fut.length, "zadanie", "zadania", "zadań")} z serii – kolejne pojawi się ${esc(fmtDate(fut[0]))}.</p>` : ""; })()}</section>
   <section class="list"><h2>Zrobione</h2>${done.length ? done.map(card).join("") : '<p class="empty">Tu pojawią się Twoje wyniki.</p>'}</section>
@@ -1200,7 +1201,7 @@ function renderPlatnosci() {
   }
   const allP = Object.values(S.data.payments).filter(p => !isCharge(p)).sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 15);
   return `<div class="head"><div><p class="eyebrow">Stan na dziś · to samo widzi uczeń</p><h1>Płatności</h1></div><div class="acts"><button class="btn primary" data-act="newPayment">+ Wpłata</button><button class="btn" data-act="newCharge">+ Zaległość</button><button class="btn" data-act="tab" data-k="wplaty">Ostatnie wpłaty</button><button class="btn mustard" data-act="tab" data-k="zgory">Rozliczenie z góry</button></div></div>
-  <div class="list">${rows.map(r => `<button class="row" data-act="selP" data-id="${r.s.id}"><span class="grow"><b>${esc(r.s.name)}</b><span class="small muted">za lekcje ${zl(r.b.due)} · wpłaty ${zl(r.b.paid)}${r.nx ? " · następna: " + esc(fmtDate(r.nx.date) + ", " + (r.nx.time || "")) : ""}</span></span><span class="chip ${r.b.bal > 0 ? "bad" : "ok"}">${r.b.bal > 0 ? "do zapłaty " + zl(r.b.bal) : r.b.bal < 0 ? "nadpłata " + zl(-r.b.bal) : "opłacone"}</span></button>`).join("") || '<p class="empty">Brak danych.</p>'}</div>
+  <div class="list">${rows.map(r => `<button class="row" data-act="selP" data-id="${r.s.id}"><span class="grow"><b>${esc(r.s.name)}${r.s.hidePay ? ' <span class="chip" title="Uczeń nie widzi płatności w aplikacji">🙈 ukryte</span>' : ""}</b><span class="small muted">za lekcje ${zl(r.b.due)} · wpłaty ${zl(r.b.paid)}${r.nx ? " · następna: " + esc(fmtDate(r.nx.date) + ", " + (r.nx.time || "")) : ""}</span></span><span class="chip ${r.b.bal > 0 ? "bad" : "ok"}">${r.b.bal > 0 ? "do zapłaty " + zl(r.b.bal) : r.b.bal < 0 ? "nadpłata " + zl(-r.b.bal) : "opłacone"}</span></button>`).join("") || '<p class="empty">Brak danych.</p>'}</div>
 `;
 }
 
@@ -1617,7 +1618,7 @@ function studentModal(s) {
     else if (sec === "lek") inner = `<div class="acts"><button class="btn sm primary" type="button" data-mact="newLesson">+ Lekcja</button></div>
     <section><h3>Najbliższe</h3>${up.length ? `<div class="list">${up.map(l => lessonRow(l, { showDate: true, showName: false })).join("")}</div>` : emptyP("Brak zaplanowanych lekcji.")}</section>
     <section><h3>Historia</h3>${past.length ? `<div class="list">${past.map(l => lessonRow(l, { showDate: true, showName: false })).join("")}</div>` : emptyP("Jeszcze nic.")}</section>`;
-    else if (sec === "wpl") inner = `<div class="stats">${balanceBlock(b)}</div><div class="acts"><button class="btn sm primary" type="button" data-mact="newPayment">+ Wpłata</button><button class="btn sm" type="button" data-mact="newCharge">+ Zaległość</button></div>
+    else if (sec === "wpl") inner = `<div class="stats">${balanceBlock(b)}</div><div class="acts"><button class="btn sm primary" type="button" data-mact="newPayment">+ Wpłata</button><button class="btn sm" type="button" data-mact="newCharge">+ Zaległość</button><button class="btn sm ghost" type="button" data-mact="hidePay" title="Czy uczeń widzi w swojej aplikacji saldo, wpłaty i dane do przelewu">${s.hidePay ? "🙈 Ukryte przed uczniem – pokaż" : "👁 Uczeń widzi płatności – ukryj"}</button></div>
     ${P.length ? `<div class="list">${P.map(p => `<div class="row"><span class="grow"><b>${isCharge(p) ? "zaległość " : ""}${zl(Number(p.amount) || 0)}</b><span class="small muted">${esc(fmtDate(p.date))}${p.method ? " · " + esc(p.method) : ""}${p.note ? " · " + esc(p.note) : ""}</span></span>${isCharge(p) ? '<span class="chip warn">doliczone</span>' : '<span class="chip ok">wpłata</span>'}<button class="btn sm ghost" type="button" data-mact="delPay" data-id="${p.id}">usuń</button></div>`).join("")}</div>` : emptyP("Brak wpłat.")}`;
     else inner = `<dl class="kv">${[["Przedmioty", subjectsOf(s).map(x => `${SUBJ[x.subject]} (${LVL[x.level] || ""}) · ${zl(Number(x.rate) || 0)}`).join(", ")], ["Klasa", s.klasa], ["Cel", s.goal], ["Telefon", s.phone], ["E-mail", s.email], ["Telefon rodzica", s.parentPhone], ["E-mail rodzica", s.parentEmail], ["Konto w aplikacji", s.loginEmail || "brak"], ["Notatki", s.notes]].filter(x => x[1]).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>
     <div class="acts"><button class="btn sm primary" type="button" data-mact="edit">Edytuj dane</button><button class="btn sm" type="button" data-mact="preview">👁 Zobacz jak uczeń</button>${s.loginEmail ? "" : `<button class="btn sm mustard" type="button" data-mact="login">Utwórz konto w aplikacji</button>`}</div>`;
@@ -1654,6 +1655,7 @@ function studentModal(s) {
       else if (k === "newLesson") { ov.remove(); lessonForm(null, { sid: s.id }); }
       else if (k === "newPayment") { ov.remove(); paymentForm(s.id); }
       else if (k === "newCharge") { ov.remove(); chargeForm(s.id); }
+      else if (k === "hidePay") { const v = !s.hidePay; await B.update("students", s.id, { hidePay: v }); s.hidePay = v; toast(v ? "Uczeń nie widzi już płatności" : "Uczeń znowu widzi płatności"); draw(); }
       else if (k === "delPay") { if (await ask("Usunąć ten wpis?", "Usuń")) { await delDoc("payments", b.dataset.id); draw(); } }
     } catch (err) { toast(errMsg(err)); }
   });
