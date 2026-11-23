@@ -216,8 +216,22 @@ async function loadAdmin(light) {
   S.data = { settings: settingsApp || {}, students: by(students), plans: by(plans), tests: by(tests), assignments: by(assignments), results: by(results), planState: by(planState), mathProgress: by(mathProgress), materials: { ...Object.fromEntries((SEED.materials || []).map(m => [m.id, m])), ...by(materials) }, lessons: by(lessons), payments: by(payments), engProgress: by(engProgress) };
   if (TESTS_SYNCED) { await syncLocalTests(results0, true); return; }
   TESTS_SYNCED = true; await syncLocalTests(results0);
-  setTimeout(() => trimRemovedResults().catch(e => console.warn("trim", e)), 8000);
+  setTimeout(() => trimRemovedResults().then(fixOpenMax).catch(e => console.warn("trim", e)), 8000);
   setTimeout(async () => { for (const id of ["649759f3-6cfc-4b6a-9830-ab5a591ea703", "7b6a72ed-4d27-423c-a8fc-8eaac658a845"]) { const st = S.data.students && S.data.students[id]; if (st && st.hidePay === undefined) { try { await B.update("students", id, { hidePay: true }); st.hidePay = true; } catch (e) { console.warn("hidePay", e); } } } }, 3000);
+}
+/* Stała punktacja: maksimum zawsze = zamknięte + otwarte (wcześniej przed oceną otwartych liczyło się tylko maksimum zamkniętych). Raz na wynik (pole maxV). */
+async function fixOpenMax() {
+  const RB = Object.getPrototypeOf(B) || B;
+  for (const [id, r] of Object.entries(S.data.results || {})) {
+    if (r.fc || (r.maxV || 0) >= 1 || typeof r.score !== "number") continue;
+    const a = S.data.assignments[r.assignmentId || id]; if (a && a.only) continue;
+    const t = S.data.tests[r.testId] || (window.PE_ARKUSZE || []).find(x => x.id === r.testId); if (!t || !t.questions) continue;
+    const om = openMax(t); if (!om) continue;
+    const cm = r.closedMax ?? maxTest(t), full = cm + om, upd = { maxV: 1 };
+    if (r.max !== full) upd.max = full;
+    if (r.firstMax != null && r.firstMax === cm) upd.firstMax = full;
+    try { await RB.update("results", r.assignmentId || id, upd); Object.assign(r, upd); } catch (e) { console.warn("fixOpenMax", id, e); }
+  }
 }
 /* Wyniki starszych matur: przelicz bez zadań usuniętych z arkuszy (poza wymaganiami od matury 2025). Raz na wynik (pole trim). */
 const TRIM_V = 1;
@@ -227,7 +241,7 @@ async function trimRemovedResults() {
     const t = ARK[r.testId]; if (!t || (r.trim || 0) >= TRIM_V) continue;
     const a = S.data.assignments[r.assignmentId]; if (a && a.only) continue; // poprawki liczone osobno
     const cs = scoreTest(t, r.answers || {}, r.over), live = Object.keys(r.openPts || {}).filter(k => !(t.questions[k] || {}).removed).length;
-    const upd = { closedScore: cs, closedMax: maxTest(t), score: cs + openSum(t, r.openPts), max: maxTest(t) + (live ? openMax(t) : 0), trim: TRIM_V };
+    const upd = { closedScore: cs, closedMax: maxTest(t), score: cs + openSum(t, r.openPts), max: maxTest(t) + openMax(t), trim: TRIM_V };
     try { await Object.getPrototypeOf(B).update.call(B, "results", r.assignmentId || r.id, upd); Object.assign(r, upd); } catch (e) { console.warn("trim", r.id, e); }
   }
 }
@@ -763,7 +777,7 @@ async function submitTest() {
   if (nW && !(await ask("Wypowiedź pisemna jest pusta. Oddać test bez niej?", "Oddaj"))) return;
   if (nOpen && nPh < nOpen && !(await ask(`Zdjęcia dodałeś/aś do ${nPh} z ${nOpen} zadań otwartych. Bez zdjęcia nauczycielka nie przyzna punktów. Oddać mimo to?`, "Oddaj"))) return;
   let photos = {}; if (nPh) { S.busy = true; renderTest(); photos = await fitPhotos(v.photos); S.busy = false; if (!photos) { renderTest(); toast("Zdjęcia są za duże – usuń część z nich i spróbuj jeszcze raz."); return; } }
-  const res = { assignmentId: v.assignment.id, studentId: S.user.studentId, testId: t.id, answers: v.answers, score, max: maxTest(t), closedScore: score, closedMax: maxTest(t), photos, submittedAt: new Date().toISOString() };
+  const res = { assignmentId: v.assignment.id, studentId: S.user.studentId, testId: t.id, answers: v.answers, score, max: maxTest(t) + openMax(t), closedScore: score, closedMax: maxTest(t), photos, submittedAt: new Date().toISOString() };
   S.busy = true; renderTest();
   try { await B.set("results", v.assignment.id, res); draftClear(v.assignment.id); S.data.results[v.assignment.id] = res; S.view = { ...v, mode: "result", result: res }; }
   catch (e) { toast(errMsg(e)); }
@@ -1994,7 +2008,7 @@ root.addEventListener("click", async e => {
       const r = S.view.result, aid = S.view.assignment.id, n = el.dataset.n; const over = { ...(r.over || {}) };
       if (el.dataset.v === "") delete over[n]; else over[n] = Number(el.dataset.v);
       const cs = scoreTest(S.view.test, r.answers || {}, over), cm = maxTest(S.view.test); const op = r.openPts || {}; const has = Object.keys(op).filter(k => !(S.view.test.questions[k] || {}).removed).length;
-      const upd = { over, closedScore: cs, closedMax: cm, score: cs + openSum(S.view.test, op), max: cm + (has ? openMax(S.view.test) : 0) };
+      const upd = { over, closedScore: cs, closedMax: cm, score: cs + openSum(S.view.test, op), max: cm + openMax(S.view.test) };
       await B.update("results", aid, upd); Object.assign(r, upd); S.data.results[aid] = r; const y = window.scrollY; renderTest(); window.scrollTo(0, y); toast(`Zapisano · wynik ${upd.score}/${upd.max}`);
     }
     else if (act === "phDel") { const n = el.dataset.n; S.view.photos[n].splice(Number(el.dataset.i), 1); draftSave(true, true); const y = window.scrollY; renderTest(); window.scrollTo(0, y); }
@@ -2097,7 +2111,7 @@ root.addEventListener("change", async e => {
     const raw = e.target.value.trim(); const op = { ...(r.openPts || {}) };
     if (raw === "") delete op[n]; else { const v = Math.round(Number(raw.replace(",", ".")) * 2) / 2; if (!(v >= 0 && v <= q.pts)) { toast(`Wpisz od 0 do ${q.pts} pkt.`); return; } op[n] = v; }
     const cs = scoreTest(S.view.test, r.answers || {}, r.over), cm = maxTest(S.view.test); const has = Object.keys(op).filter(k => !(S.view.test.questions[k] || {}).removed).length;
-    const upd = { openPts: op, closedScore: cs, closedMax: cm, score: cs + openSum(S.view.test, op), max: cm + (has ? openMax(S.view.test) : 0), gradedAt: new Date().toISOString() };
+    const upd = { openPts: op, closedScore: cs, closedMax: cm, score: cs + openSum(S.view.test, op), max: cm + openMax(S.view.test), gradedAt: new Date().toISOString() };
     try { await B.update("results", aid, upd); Object.assign(r, upd); S.data.results[aid] = r; const y = window.scrollY; renderTest(); window.scrollTo(0, y); toast(`Zapisano · wynik ${upd.score}/${upd.max}`); } catch (err) { toast(errMsg(err)); }
     return;
   }
