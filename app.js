@@ -321,6 +321,12 @@ function dueChip(a) {
   const txt = d < 0 ? `opóźnione · ${-d} ${plural(-d, "dzień", "dni", "dni")}` : d === 0 ? "termin: dziś!" : d === 1 ? "termin: jutro" : `termin: ${fmtDate(a.due)}${d <= 7 ? ` · za ${d} dni` : ""}`;
   return `<span class="chip ${d < 0 ? "bad" : d <= 1 ? "warn" : "acc"}" style="white-space:nowrap;font-weight:700">${txt}</span>`;
 }
+function lateBanner(todo) {
+  const lim = new Date(Date.now() - 7 * 864e5); const wk = `${lim.getFullYear()}-${String(lim.getMonth() + 1).padStart(2, "0")}-${String(lim.getDate()).padStart(2, "0")}`;
+  const old = todo.filter(a => a.due && a.due < wk); if (!old.length) return "";
+  const nm = a => esc(ownKind(a) ? (a.title || "Zadanie") : ((a.only ? "Poprawa: " : "") + ((S.data.tests[a.testId] || {}).title || "Test")));
+  return `<section class="panel" role="alert" style="border:2px solid var(--bad);background:var(--bad-soft)"><h2 style="margin:0 0 6px;color:var(--bad)">⚠️ ${old.length === 1 ? "Masz zadanie" : `Masz ${old.length} ${plural(old.length, "zadanie", "zadania", "zadań")}`} opóźnione ponad tydzień</h2><p class="small" style="margin:0 0 6px">Zrób je jak najszybciej – bez tego trudno będzie iść dalej z materiałem.</p><ul class="small" style="margin:0;padding-left:18px">${old.map(a => `<li><b>${nm(a)}</b> – termin minął ${esc(fmtDate(a.due))}</li>`).join("")}</ul></section>`;
+}
 function waitChip(a) {
   if (!a.due) return '<span class="chip">czeka</span>';
   const d = Math.round((new Date(a.due + "T00:00:00") - new Date(today() + "T00:00:00")) / 864e5);
@@ -547,7 +553,7 @@ function renderStudent() {
   ${S.data.me && S.data.me.hidePay ? "" : `<section class="panel"><h2>Płatności</h2><div class="stats">${balanceBlock(b)}</div>
   ${b.pays.length ? `<div class="tablewrap"><table><thead><tr><th>Data wpłaty</th><th>Kwota</th></tr></thead><tbody>${b.pays.sort((x, y) => (y.date || "").localeCompare(x.date || "")).map(p => `<tr><td>${esc(fmtDate(p.date))}</td><td>${zl(Number(p.amount) || 0)}</td></tr>`).join("")}</tbody></table></div>` : ""}
   ${bank && bank.account ? `<details><summary class="small" style="cursor:pointer;color:var(--accent);font-weight:600">Dane do przelewu</summary><p class="small" style="margin-top:8px">Odbiorca: ${esc(bank.recipient || "")}<br>Numer konta: <b style="user-select:all">${esc(bank.account)}</b>${title ? `<br>Tytuł: ${esc(title)}` : ""}</p></details>` : ""}</section>`}`;
-  root.innerHTML = frame(`${installHint()}${stuTabs()}<div class="head"><div><p class="eyebrow">Twoje konto</p><h1>Cześć, ${esc(S.user.name.split(" ")[0])}!</h1></div></div>${top}${studentResults()}${studentMatury()}
+  root.innerHTML = frame(`${installHint()}${stuTabs()}<div class="head"><div><p class="eyebrow">Twoje konto</p><h1>Cześć, ${esc(S.user.name.split(" ")[0])}!</h1></div></div>${lateBanner(todo)}${top}${studentResults()}${studentMatury()}
   <section class="list"><h2>Do zrobienia</h2>${todo.length ? todo.map(card).join("") : '<p class="empty">Wszystko zrobione. 🎉</p>'}${(() => { const fut = Object.values(S.data.assignments).filter(a => isFuture(a) && !isArch(a)).map(a => a.from).sort(); return fut.length ? `<p class="small muted" style="margin:6px 2px">Zaplanowane: jeszcze ${fut.length} ${plural(fut.length, "zadanie", "zadania", "zadań")} z serii – kolejne pojawi się ${esc(fmtDate(fut[0]))}.</p>` : ""; })()}</section>
   <section class="list"><h2>Zrobione</h2>${done.length ? done.map(card).join("") : '<p class="empty">Tu pojawią się Twoje wyniki.</p>'}</section>
   ${arch.length ? `<details class="list" style="margin-top:8px"><summary style="cursor:pointer"><h2 style="display:inline">Archiwum (${arch.length})</h2></summary><div class="list" style="margin-top:10px">${arch.map(card).join("")}</div></details>` : ""}`);
