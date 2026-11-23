@@ -533,7 +533,7 @@ function renderStudent() {
   const card = a => { const t = S.data.tests[a.testId]; const r = resultFor(a.id); const late = !r && a.due && a.due < today();
     if (ownKind(a)) return customCard(a, r, late);
     return `<button class="row" data-act="openTest" data-id="${a.id}"><span class="grow"><b>${a.only ? "Poprawa: " : ""}${esc(t ? t.title : "Test")}${a.only ? ` <span class="chip">${a.only.length} ${plural(a.only.length, "zadanie", "zadania", "zadań")}</span>` : ""}</b><span class="small muted">${t && t.topic ? esc(t.topic) : ""}${r && a.due ? (t && t.topic ? " · " : "") + "termin: " + fmtDate(a.due) : ""}</span></span>
-    ${r ? `<span class="chip ${pctCls(pct(r.score, r.max))}">${r.score}/${r.max} · ${pct(r.score, r.max)}%</span>` : dueChip(a)}</button>`; };
+    ${r ? (resPend(r) ? pendChip(resPend(r)) : `<span class="chip ${pctCls(pct(r.score, r.max))}">${r.score}/${r.max} · ${pct(r.score, r.max)}%</span>`) : dueChip(a)}</button>`; };
   const nx = nextLessons(S.data.lessons || [], 3); const b = balanceOf(S.data.lessons || [], S.data.payments || []);
   const bank = S.data.settings && S.data.settings.bank; const month = new Date().toLocaleDateString("pl-PL", { month: "long", year: "numeric" });
   const title = S.data.settings && S.data.settings.titleTpl ? S.data.settings.titleTpl.replace("{imie}", S.user.name).replace("{miesiac}", month) : "";
@@ -587,7 +587,7 @@ function redoBadge(a, r) {
 }
 function redoInfo(a) {
   return redosOf(a).map(x => { const r = S.data.results[x.id]; const n = (x.only || []).length;
-    return `<span class="chip ${r ? "ok" : "warn"}" style="white-space:nowrap">Zadano ponownie: ${n} ${plural(n, "zadanie", "zadania", "zadań")}${x.due ? " · termin " + fmtDate(x.due) : ""} · ${r ? `zrobione ${r.score}/${r.max}` : "czeka"}</span>`; }).join("");
+    return `<span class="chip ${r ? "ok" : "warn"}" style="white-space:nowrap">Zadano ponownie: ${n} ${plural(n, "zadanie", "zadania", "zadań")}${x.due ? " · termin " + fmtDate(x.due) : ""} · ${r ? (resPend(r) ? "zrobione · ⚠️ do oceny" : `zrobione ${r.score}/${r.max}`) : "czeka"}</span>`; }).join("");
 }
 function subsetTest(t, only) {
   if (!only || !only.length) return t;
@@ -761,7 +761,7 @@ function renderTest() {
     const op = openPts(t); const nOpen = t.questions.filter(q => q.type === "open" && !q.removed).length; const graded = Object.keys(r.openPts || {}).filter(n => !(t.questions[n] || {}).removed).length;
     const cs = r.closedScore ?? (graded ? null : r.score), cm = r.closedMax ?? (graded ? null : r.max);
     const og = openSum(t, r.openPts);
-    top = `<div class="scorecard"><span class="score">${r.score}/${r.max}</span><div><b>${pct(r.score, r.max)}%${r.firstScore != null && !v.assignment?.only ? ` <span class="chip ok" style="vertical-align:middle">poprawione · pierwotnie ${r.firstScore}/${r.firstMax ?? r.max}</span>` : ""}</b><p class="small muted">${op ? `${t.subject === "ang" ? "Sprawdzane automatycznie" : "Zadania zamknięte"}: ${cs ?? "–"}/${cm ?? "–"} pkt · ${t.subject === "ang" ? "wypowiedź pisemna" : "zadania otwarte"}: ${graded ? `${og}/${op} pkt${graded < nOpen ? ` (sprawdzone ${graded} z ${nOpen})` : ""}` : `${op} pkt – ${t.subject === "ang" ? "czeka" : "czekają"} na sprawdzenie`}` : "Przejrzyj wyjaśnienia przy pytaniach, zwłaszcza tam, gdzie jest „Źle”."}</p></div></div>`;
+    const pd = resPend(r); top = `<div class="scorecard"><span class="score">${pd ? "⚠️" : `${r.score}/${r.max}`}</span><div><b>${pd ? "Wynik pojawi się po sprawdzeniu zadań otwartych" : `${pct(r.score, r.max)}%`}${r.firstScore != null && !v.assignment?.only ? ` <span class="chip ok" style="vertical-align:middle">poprawione · pierwotnie ${r.firstScore}/${r.firstMax ?? r.max}</span>` : ""}</b><p class="small muted">${op ? `${t.subject === "ang" ? "Sprawdzane automatycznie" : "Zadania zamknięte"}: ${cs ?? "–"}/${cm ?? "–"} pkt · ${t.subject === "ang" ? "wypowiedź pisemna" : "zadania otwarte"}: ${graded ? `${og}/${op} pkt${graded < nOpen ? ` (sprawdzone ${graded} z ${nOpen})` : ""}` : `${op} pkt – ${t.subject === "ang" ? "czeka" : "czekają"} na sprawdzenie`}` : "Przejrzyj wyjaśnienia przy pytaniach, zwłaszcza tam, gdzie jest „Źle”."}</p></div></div>`;
   } else top = `<div class="notice small">Podgląd z kluczem odpowiedzi i wyjaśnieniami.</div>`;
   root.innerHTML = frame(`<div class="head"><div><button class="btn sm ghost" data-act="back" style="justify-self:start">← Wróć</button><p class="eyebrow">${esc(t.topic || "")}${t.level ? " · " + esc(t.level) : ""}</p><h1>${v.assignment && v.assignment.only ? "Poprawa: " : ""}${esc(t.title)}</h1>${v.assignment && v.assignment.only ? `<p class="small muted">Tylko zadania, które poprzednio wyszły źle (${v.assignment.only.length}).</p>` : ""}${v.who ? `<p class="muted">${esc(v.who)}</p>` : ""}</div>${v.mode === "key" && S.user.role === "admin" && !S.preview ? `<div class="acts"><button class="btn primary" data-act="giveTest" data-id="${esc(t.id)}">Zadaj uczniowi</button></div>` : ""}${v.mode === "result" && S.user.role === "admin" && !S.preview && v.result ? `<div class="acts" style="flex-direction:column;align-items:flex-end;gap:6px">${redoInfo(v.assignment)}<button class="btn ${redosOf(v.assignment).length ? "ghost" : "mustard"}" data-act="redoTest">${redosOf(v.assignment).length ? "Zadaj ponownie jeszcze raz" : "Zadaj ponownie błędne"} (${wrongIdx(t, v.result).length})</button></div>` : ""}</div>
   ${top}<div class="sheet">${t.instructions ? `<p class="muted">${esc(t.instructions)}</p>` : ""}${ytBox(t)}${testBody(t, v.answers, v.mode)}</div>${bottom}`);
@@ -795,7 +795,7 @@ function renderMaturzysci() {
   if (!S.sel || !S.data.plans[S.sel]) S.sel = list[0].id;
   const s = S.data.students[S.sel], plan = S.data.plans[S.sel], st = S.data.planState[S.sel] || {};
   const doneN = plan.lessons.filter(l => (st.done || {})[l.n]).length;
-  const res = Object.values(S.data.results).filter(r => r.studentId === s.id && typeof r.score === "number" && !r.fc);
+  const res = Object.values(S.data.results).filter(r => r.studentId === s.id && typeof r.score === "number" && !r.fc && !resPend(r));
   const avg = res.length ? Math.round(res.reduce((a, r) => a + pct(r.score, r.max), 0) / res.length) : null;
   const ni = nextIndex(plan, st);
   const shown = S.showAll ? plan.lessons.map((l, i) => [l, i]) : plan.lessons.map((l, i) => [l, i]).filter(([l, i]) => i >= Math.max(0, ni) - 1);
@@ -806,7 +806,7 @@ function renderMaturzysci() {
       if (h.testId) {
         const t = S.data.tests[h.testId]; const a = assignmentFor(s.id, h.testId); const r = a && S.data.results[a.id];
         act = !t ? '<span class="chip">czytanka do przygotowania</span>'
-          : r ? `<button class="btn sm ghost" data-act="viewResult" data-id="${a.id}">wynik ${r.score}/${r.max}</button>`
+          : r ? `<button class="btn sm ghost" data-act="viewResult" data-id="${a.id}">${resPend(r) ? "⚠️ do oceny" : `wynik ${r.score}/${r.max}`}</button>`
           : a ? `<span class="chip acc">zadane, termin ${fmtDate(a.due)}</span>`
           : `<button class="btn sm mustard" data-act="assignFromPlan" data-test="${h.testId}" data-i="${i}">Zadaj w aplikacji</button>`;
         if (t) act = `<button class="btn sm ghost" data-act="previewTest" data-id="${h.testId}">podgląd</button>` + act;
@@ -876,6 +876,14 @@ const MATH_KEYS = ["t01", "t02", "t03", "t20", "t04", "t05", "t06", "t07", "t08"
 const tkey = i => MATH_KEYS[i];
 const pctCls = p => "r" + (p >= 90 ? 6 : p >= 75 ? 5 : p >= 60 ? 4 : p >= 45 ? 3 : p >= 30 ? 2 : 1);
 const PCT_LEGEND = `<span class="pctleg">Wyniki: <span class="chip r6">90–100%</span> <span class="chip r5">75–89%</span> <span class="chip r4">60–74%</span> <span class="chip r3">45–59%</span> <span class="chip r2">30–44%</span> <span class="chip r1">&lt; 30%</span> · próg zaliczenia 60%</span>`;
+function resPend(r) {
+  if (!r || r.fc || typeof r.score !== "number") return 0;
+  const a = S.data.assignments[r.assignmentId || r.id], t = S.data.tests[r.testId] || (window.PE_ARKUSZE || []).find(x => x.id === r.testId); if (!t || !t.questions) return 0;
+  const qAt = k => t.questions[a && a.only ? a.only[k] : k], idx = a && a.only ? a.only.map((_, k) => k) : t.questions.map((_, k) => k);
+  const isOpen = q => q && q.type === "open" && !q.removed;
+  return Math.max(0, idx.filter(k => isOpen(qAt(k))).length - Object.keys(r.openPts || {}).filter(k => isOpen(qAt(k))).length);
+}
+const pendChip = n => `<span class="chip warn" style="white-space:nowrap" title="Czeka na ocenę zadań otwartych${n ? " (" + n + ")" : ""} – wynik pojawi się po sprawdzeniu">⚠️ do oceny</span>`;
 const pctChip = p => p === undefined || p === null || p === "" ? "" : `<span class="chip ${pctCls(p)}">${p}%</span>`;
 function mathStats(sid) {
   const t = (S.data.mathProgress[sid] || {}).topics || {};
@@ -918,11 +926,11 @@ function maturaCell(sid, sh, topics) {
   const x = (topics || {})[sh.key]; if (x && typeof x.pct === "number") return { pct: x.pct, pts: x.pts, max: x.max, app: false };
   return null;
 }
-function maturaAvg(cells) { const c = cells.filter(Boolean); return c.length ? Math.round(c.reduce((a, x) => a + x.pct, 0) / c.length) : null; }
+function maturaAvg(cells) { const c = cells.filter(x => x && !x.pend); return c.length ? Math.round(c.reduce((a, x) => a + x.pct, 0) / c.length) : null; }
 function maturaTable(kind, list, progOf, selAct) {
   const sh = maturaSheets(kind); if (!sh.length) return "";
   const eng = !/mat$|^M$|^E$|e8$/.test(kind);
-  const td = (c, i) => `<td title="${esc(sheetLabel(sh[i]))}${c ? ` · ${c.pts}/${c.max} pkt${c.part ? " · " + c.part : ""}${c.pend ? ` · ${c.pend} zad. otwartych czeka na ocenę – wynik niepełny` : ""}${c.fix ? ` · pierwsza wersja (po poprawie: ${c.fix.score}/${c.fix.max})` : ""}${c.app ? " · z aplikacji" : " · wpisane"}` : ""}">${c ? pctChip(c.pct) + (c.pend ? ' <span title="czeka na ocenę zadań otwartych">⏳</span>' : "") : '<span class="muted">–</span>'}</td>`;
+  const td = (c, i) => `<td title="${esc(sheetLabel(sh[i]))}${c ? ` · ${c.pts}/${c.max} pkt${c.part ? " · " + c.part : ""}${c.pend ? ` · ${c.pend} zad. otwartych czeka na ocenę – wynik niepełny` : ""}${c.fix ? ` · pierwsza wersja (po poprawie: ${c.fix.score}/${c.fix.max})` : ""}${c.app ? " · z aplikacji" : " · wpisane"}` : ""}">${c ? (c.pend ? pendChip(c.pend) : pctChip(c.pct)) : '<span class="muted">–</span>'}</td>`;
   const line = (first, label, cells, strong) => { const av = maturaAvg(cells); return `<tr${strong ? ' style="font-weight:600"' : ""}>${first}${eng ? `<td class="small">${label}</td>` : ""}<td>${cells.filter(Boolean).length}/${sh.length}</td><td>${av === null ? "–" : pctChip(av)}</td>${cells.map(td).join("")}</tr>`; };
   const rows = list.map(s => { const cells = sh.map(x => maturaCell(s.id, x, (progOf(s.id) || {}).topics)); const nm = selAct ? `<button class="btn sm ghost" data-act="${selAct}" data-id="${s.id}">${esc(s.name)}</button>` : `<b class="small">${esc(s.name)}</b>`;
     if (!eng) return line(`<td>${nm}</td>`, "", cells);
@@ -939,14 +947,14 @@ function maturaRows(kind, sid, topics, attr) {
     const dflt = typeof t.max === "number" ? t.max : (newMax || (attr === "m" ? mathMaxDefault(x.key) : null));
     const rmNote = rm.length && !app ? `<span class="small" style="flex-basis:100%;color:var(--warn,#b45309)">Bez zadań ${esc([...new Set(rm)].join(", "))} (poza wymaganiami od 2025) – licz na ${newMax} pkt${typeof t.max === "number" && t.max !== newMax ? `, teraz wpisane na ${t.max}` : ""}.</span>` : "";
     return `<div class="row" style="flex-wrap:wrap"><span class="num">${x.n}</span><span class="grow"><b>${x.cke ? "Próbna CKE" : "Matura"} ${esc(x.when)}</b></span>
-    ${app ? `<span class="small muted">w aplikacji: ${app.pts}/${app.max} pkt${app.part ? " (" + app.part + ")" : ""}${app.pend ? ` · ⏳ ${app.pend} zad. otwartych do oceny` : ""}</span>${pctChip(app.pct)}` : `<span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="number" min="0" step="0.5" inputmode="decimal" data-${P[0]}="${x.key}" value="${typeof t.pts === "number" ? t.pts : ""}" placeholder="pkt" style="width:72px" aria-label="Punkty: ${esc(sheetLabel(x))}"><span class="muted">na</span><input type="number" min="1" step="0.5" inputmode="decimal" data-${P[1]}="${x.key}" value="${dflt ?? ""}" placeholder="max" style="width:72px" aria-label="Maksimum: ${esc(sheetLabel(x))}"><span class="muted small">pkt</span></span>${pctChip(t.pct)}`}${rmNote}</div>`; }).join("");
+    ${app ? `<span class="small muted">w aplikacji: ${app.pts}/${app.max} pkt${app.part ? " (" + app.part + ")" : ""}${app.pend ? ` · ${app.pend} zad. otwartych do oceny` : ""}</span>${app.pend ? pendChip(app.pend) : pctChip(app.pct)}` : `<span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="number" min="0" step="0.5" inputmode="decimal" data-${P[0]}="${x.key}" value="${typeof t.pts === "number" ? t.pts : ""}" placeholder="pkt" style="width:72px" aria-label="Punkty: ${esc(sheetLabel(x))}"><span class="muted">na</span><input type="number" min="1" step="0.5" inputmode="decimal" data-${P[1]}="${x.key}" value="${dflt ?? ""}" placeholder="max" style="width:72px" aria-label="Maksimum: ${esc(sheetLabel(x))}"><span class="muted small">pkt</span></span>${pctChip(t.pct)}`}${rmNote}</div>`; }).join("");
 }
 function studentMatury() {
   const me = S.data.me || {}; const out = [];
   for (const kind of ["E", "M", "P", "R"]) {
     const topics = ((kind === "M" || kind === "E" ? S.data.mathP : S.data.engP) || {}).topics || {};
     const done = maturaSheets(kind).map(x => [x, maturaCell(me.id || S.user.studentId, x, topics)]).filter(([, c]) => c);
-    if (done.length) out.push(`<h3 style="margin:10px 0 4px">${{ E: "Egzamin ósmoklasisty – matematyka", M: "Matematyka", P: "Angielski – poziom podstawowy", R: "Angielski – poziom rozszerzony" }[kind]} <span class="small muted">· średnia ${maturaAvg(done.map(d => d[1]))}%</span></h3><div class="tablewrap"><table><thead><tr><th>Arkusz</th><th>Punkty</th><th>Wynik</th></tr></thead><tbody>${done.map(([x, c]) => `<tr><td>${esc(sheetLabel(x))}</td><td>${c.pts}/${c.max}${c.pend ? ' <span class="small muted">· czeka na ocenę zadań otwartych</span>' : ""}</td><td>${pctChip(c.pct)}</td></tr>`).join("")}</tbody></table></div>`);
+    if (done.length) out.push(`<h3 style="margin:10px 0 4px">${{ E: "Egzamin ósmoklasisty – matematyka", M: "Matematyka", P: "Angielski – poziom podstawowy", R: "Angielski – poziom rozszerzony" }[kind]} ${maturaAvg(done.map(d => d[1])) === null ? "" : `<span class="small muted">· średnia ${maturaAvg(done.map(d => d[1]))}%</span>`}</h3><div class="tablewrap"><table><thead><tr><th>Arkusz</th><th>Punkty</th><th>Wynik</th></tr></thead><tbody>${done.map(([x, c]) => `<tr><td>${esc(sheetLabel(x))}</td><td>${c.pend ? '<span class="small muted">czeka na ocenę zadań otwartych</span>' : `${c.pts}/${c.max}`}</td><td>${c.pend ? pendChip(c.pend) : pctChip(c.pct)}</td></tr>`).join("")}</tbody></table></div>`);
   }
   return out.length ? `<section class="panel"><h2>Arkusze egzaminacyjne – Twoje wyniki</h2>${out.join("")}</section>` : "";
 }
@@ -1233,7 +1241,7 @@ function renderZadania() {
   ${S.showArchZ ? "" : `<form class="panel" id="assignForm" style="display:grid;gap:12px"><h2>Zadaj zadanie</h2>${assignFormHtml(null)}</form>`}
   <section class="panel"><div class="row" style="padding:0;border:0;background:none"><h2 class="grow" style="margin:0">${S.showArchZ ? "Archiwum zadań" : "Wszystkie zadania"}<span class="small muted" style="display:block;font-weight:400">Zadania przenosisz do archiwum sama przyciskiem „do archiwum” – znikają wtedy z listy u Ciebie i u ucznia.</span></h2>${nArchA || S.showArchZ ? `<button class="btn sm ghost" data-act="toggleArchZ">${S.showArchZ ? "← Aktualne zadania" : `Archiwum (${nArchA})`}</button>` : ""}</div>${as.length ? `<div class="tablewrap"><table><thead><tr><th>Uczeń</th><th>Zadanie</th><th>Termin</th><th>Wynik</th><th></th></tr></thead><tbody>
   ${as.map(a => { const r = S.data.results[a.id]; const s = S.data.students[a.studentId]; const cu = ownKind(a);
-    return `<tr class="${r && !cu ? "click" : ""}" ${r && !cu ? `data-act="viewResult" data-id="${a.id}"` : ""}><td>${esc(s ? s.name : "?")}</td><td style="white-space:normal">${esc(taskTitle(a))}${isFuture(a) ? ` <span class="small muted">· uczeń zobaczy od ${esc(fmtDate(a.from))}</span>` : ""}${cu ? ` <span class="chip">${a.kind === "material" ? "materiał" : "własne"}</span>` : ""}</td><td>${fmtDate(a.due)}</td><td>${cu ? (r ? `<span class="chip ok" title="${r.by === "teacher" ? "odhaczone przez Ciebie" : "odhaczone przez ucznia"}">zrobione${r.by === "student" ? " (uczeń)" : ""}</span> <button class="btn sm ghost" data-act="undoneCustom" data-id="${a.id}" title="Cofnij odhaczenie">↺ nie zrobione</button>` : `${a.due && a.due < today() ? '<span class="chip bad">po terminie</span> ' : ""}<button class="btn sm" data-act="doneCustom" data-id="${a.id}">Odhacz</button>`) : r ? `<span class="chip ${pctCls(pct(r.score, r.max))}">${r.score}/${r.max} · ${pct(r.score, r.max)}%</span>` : a.due && a.due < today() ? '<span class="chip bad">po terminie</span>' : '<span class="chip">czeka</span>'}${redoBadge(a, r)}</td>
+    return `<tr class="${r && !cu ? "click" : ""}" ${r && !cu ? `data-act="viewResult" data-id="${a.id}"` : ""}><td>${esc(s ? s.name : "?")}</td><td style="white-space:normal">${esc(taskTitle(a))}${isFuture(a) ? ` <span class="small muted">· uczeń zobaczy od ${esc(fmtDate(a.from))}</span>` : ""}${cu ? ` <span class="chip">${a.kind === "material" ? "materiał" : "własne"}</span>` : ""}</td><td>${fmtDate(a.due)}</td><td>${cu ? (r ? `<span class="chip ok" title="${r.by === "teacher" ? "odhaczone przez Ciebie" : "odhaczone przez ucznia"}">zrobione${r.by === "student" ? " (uczeń)" : ""}</span> <button class="btn sm ghost" data-act="undoneCustom" data-id="${a.id}" title="Cofnij odhaczenie">↺ nie zrobione</button>` : `${a.due && a.due < today() ? '<span class="chip bad">po terminie</span> ' : ""}<button class="btn sm" data-act="doneCustom" data-id="${a.id}">Odhacz</button>`) : r ? (resPend(r) ? pendChip(resPend(r)) : `<span class="chip ${pctCls(pct(r.score, r.max))}">${r.score}/${r.max} · ${pct(r.score, r.max)}%</span>`) : a.due && a.due < today() ? '<span class="chip bad">po terminie</span>' : '<span class="chip">czeka</span>'}${redoBadge(a, r)}</td>
     <td style="white-space:nowrap"><button class="btn sm ghost" data-act="archAssign" data-id="${a.id}" data-v="${isArch(a) ? 0 : 1}">${isArch(a) ? "↩ przywróć" : "do archiwum"}</button>${r ? "" : `<button class="btn sm ghost" data-act="delAssign" data-id="${a.id}">usuń</button>`}</td></tr>`; }).join("")}</tbody></table></div>` : `<p class="empty">${S.showArchZ ? "Archiwum jest puste." : "Nic jeszcze nie zadano."}</p>`}</section>`;
 }
 
