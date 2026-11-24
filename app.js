@@ -590,6 +590,8 @@ const openMax = t => t.questions.reduce((s, q) => s + (q.type === "open" && !q.r
 const liveQ = t => (t.questions || []).map((q, n) => [q, n]).filter(([q]) => !q.removed); // zadania usunięte (poza wymaganiami) zostają w tablicy, żeby nie przesunąć numerów odpowiedzi
 /* ---------- poprawa: test złożony tylko z wybranych zadań ---------- */
 const grpKey = q => String(q.label || "").replace(/\.\d+\.?$/, "").replace(/\.$/, "");
+/* Termin do kolejki: jeśli zadanie ma niezrobioną poprawę, liczy się termin poprawy. */
+function effDueMap() { const m = {}; for (const x of Object.values(S.data.assignments || {})) if (x.redoOf && !S.data.results[x.id] && x.due && (!m[x.redoOf] || x.due > m[x.redoOf])) m[x.redoOf] = x.due; return m; }
 const redosOf = a => a ? Object.values(S.data.assignments || {}).filter(x => x.redoOf === a.id).sort((x, y) => String(x.createdAt || "").localeCompare(String(y.createdAt || ""))) : [];
 function redoBadge(a, r) {
   const rs = redosOf(a); let h = "";
@@ -1245,14 +1247,15 @@ function renderZadania() {
   const st = Object.values(S.data.students).sort((a, b) => a.name.localeCompare(b.name, "pl"));
   const ts = Object.values(S.data.tests).sort((a, b) => a.title.localeCompare(b.title, "pl"));
   const isDoneA = a => !!S.data.results[a.id];
-  const allA = Object.values(S.data.assignments).sort((a, b) => { const da = isDoneA(a), db = isDoneA(b); if (da !== db) return da ? 1 : -1; return da ? (b.due || "").localeCompare(a.due || "") : (a.due || "9999").localeCompare(b.due || "9999"); });
+  const ED = effDueMap(), eDue = a => ED[a.id] || a.due;
+  const allA = Object.values(S.data.assignments).sort((a, b) => { const da = isDoneA(a), db = isDoneA(b); if (da !== db) return da ? 1 : -1; return da ? (eDue(b) || "").localeCompare(eDue(a) || "") : (a.due || "9999").localeCompare(b.due || "9999"); });
   const nArchA = allA.filter(isArch).length; if (!nArchA) S.showArchZ = false;
   const as = allA.filter(a => isArch(a) === !!S.showArchZ);
   return `<div class="head"><div><p class="eyebrow">Testy i zadania własne</p><h1>Zadania domowe</h1></div></div>
   ${S.showArchZ ? "" : `<form class="panel" id="assignForm" style="display:grid;gap:12px"><h2>Zadaj zadanie</h2>${assignFormHtml(null)}</form>`}
   <section class="panel"><div class="row" style="padding:0;border:0;background:none"><h2 class="grow" style="margin:0">${S.showArchZ ? "Archiwum zadań" : "Wszystkie zadania"}<span class="small muted" style="display:block;font-weight:400">Zadania przenosisz do archiwum sama przyciskiem „do archiwum” – znikają wtedy z listy u Ciebie i u ucznia.</span></h2>${nArchA || S.showArchZ ? `<button class="btn sm ghost" data-act="toggleArchZ">${S.showArchZ ? "← Aktualne zadania" : `Archiwum (${nArchA})`}</button>` : ""}</div>${as.length ? `<div class="tablewrap"><table><thead><tr><th>Uczeń</th><th>Zadanie</th><th>Termin</th><th>Wynik</th><th></th></tr></thead><tbody>
   ${as.map(a => { const r = S.data.results[a.id]; const s = S.data.students[a.studentId]; const cu = ownKind(a);
-    return `<tr class="${r && !cu ? "click" : ""}" ${r && !cu ? `data-act="viewResult" data-id="${a.id}"` : ""}><td>${esc(s ? s.name : "?")}</td><td style="white-space:normal">${esc(taskTitle(a))}${isFuture(a) ? ` <span class="small muted">· uczeń zobaczy od ${esc(fmtDate(a.from))}</span>` : ""}${cu ? ` <span class="chip">${a.kind === "material" ? "materiał" : "własne"}</span>` : ""}</td><td>${fmtDate(a.due)}</td><td>${cu ? (r ? `<span class="chip ok" title="${r.by === "teacher" ? "odhaczone przez Ciebie" : "odhaczone przez ucznia"}">zrobione${r.by === "student" ? " (uczeń)" : ""}</span> <button class="btn sm ghost" data-act="undoneCustom" data-id="${a.id}" title="Cofnij odhaczenie">↺ nie zrobione</button>` : `${a.due && a.due < today() ? waitChip(a) + " " : ""}<button class="btn sm" data-act="doneCustom" data-id="${a.id}">Odhacz</button>`) : r ? (resPend(r) ? pendChip(resPend(r)) : `<span class="chip ${pctCls(pct(r.score, r.max))}">${r.score}/${r.max} · ${pct(r.score, r.max)}%</span>`) : waitChip(a)}${redoBadge(a, r)}</td>
+    return `<tr class="${r && !cu ? "click" : ""}" ${r && !cu ? `data-act="viewResult" data-id="${a.id}"` : ""}><td>${esc(s ? s.name : "?")}</td><td style="white-space:normal">${esc(taskTitle(a))}${isFuture(a) ? ` <span class="small muted">· uczeń zobaczy od ${esc(fmtDate(a.from))}</span>` : ""}${cu ? ` <span class="chip">${a.kind === "material" ? "materiał" : "własne"}</span>` : ""}</td><td>${ED[a.id] ? `<span title="Termin poprawy (pierwotnie ${esc(fmtDate(a.due))})">${fmtDate(ED[a.id])}</span>` : fmtDate(a.due)}</td><td>${cu ? (r ? `<span class="chip ok" title="${r.by === "teacher" ? "odhaczone przez Ciebie" : "odhaczone przez ucznia"}">zrobione${r.by === "student" ? " (uczeń)" : ""}</span> <button class="btn sm ghost" data-act="undoneCustom" data-id="${a.id}" title="Cofnij odhaczenie">↺ nie zrobione</button>` : `${a.due && a.due < today() ? waitChip(a) + " " : ""}<button class="btn sm" data-act="doneCustom" data-id="${a.id}">Odhacz</button>`) : r ? (resPend(r) ? pendChip(resPend(r)) : `<span class="chip ${pctCls(pct(r.score, r.max))}">${r.score}/${r.max} · ${pct(r.score, r.max)}%</span>`) : waitChip(a)}${redoBadge(a, r)}</td>
     <td style="white-space:nowrap"><button class="btn sm ghost" data-act="archAssign" data-id="${a.id}" data-v="${isArch(a) ? 0 : 1}">${isArch(a) ? "↩ przywróć" : "do archiwum"}</button>${r ? "" : `<button class="btn sm ghost" data-act="delAssign" data-id="${a.id}">usuń</button>`}</td></tr>`; }).join("")}</tbody></table></div>` : `<p class="empty">${S.showArchZ ? "Archiwum jest puste." : "Nic jeszcze nie zadano."}</p>`}</section>`;
 }
 
@@ -1643,7 +1646,7 @@ function studentModal(s) {
     const up = ls.filter(l => l.date >= t && l.status === "planned").slice(0, 5), past = ls.filter(l => l.date < t || l.status !== "planned" && l.date <= t).reverse().slice(0, 12);
     const P = Object.values(S.data.payments).filter(p => p.studentId === s.id).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     const b = balFor(s.id);
-    const asAll = Object.values(S.data.assignments).filter(a => a.studentId === s.id).sort((a, b) => { const da = !!S.data.results[a.id], db = !!S.data.results[b.id]; if (da !== db) return da ? 1 : -1; return da ? (b.due || "").localeCompare(a.due || "") : (a.due || "9999").localeCompare(b.due || "9999"); }); const as = asAll.filter(a => !isArch(a)), asArch = asAll.filter(isArch); let ROWS;
+    const ED = effDueMap(); const asAll = Object.values(S.data.assignments).filter(a => a.studentId === s.id).sort((a, b) => { const da = !!S.data.results[a.id], db = !!S.data.results[b.id]; if (da !== db) return da ? 1 : -1; return da ? (ED[b.id] || b.due || "").localeCompare(ED[a.id] || a.due || "") : (a.due || "9999").localeCompare(b.due || "9999"); }); const as = asAll.filter(a => !isArch(a)), asArch = asAll.filter(isArch); let ROWS;
     const sec = S.stSec || "zad";
     const tabsH = [["zad", "Zadania"], ["lek", "Lekcje"], ["wpl", "Płatności"], ["dane", "Dane"]].map(([k, l]) => `<button type="button" data-msec="${k}" aria-selected="${sec === k}">${l}</button>`).join("");
     let inner = "";
