@@ -378,7 +378,7 @@ function printDoc({ title, category, body, extra }) {
 function showMaterial(a) {
   const ov = document.createElement("div"); ov.className = "ov";
   ov.innerHTML = `<div class="modal" role="dialog" aria-modal="true" style="max-width:820px;width:100%"><header><h2>${esc(a.title || "Materiał")}</h2><button class="x" data-x>×</button></header>
-  <div class="mb"><div class="md">${md(a.body || "")}</div>${a.vocab ? `<hr><div class="md">${md(a.vocab)}</div>` : ""}</div>
+  <div class="mb">${matKey(a.matId) ? `<p class="small muted" style="margin:0 0 8px">✏️ Wpisuj odpowiedzi w luki, klikaj wybrane opcje, a przy każdym zadaniu naciśnij „Sprawdź”.</p>` : ""}<div class="md">${matKey(a.matId) ? imd(a.body || "", matKey(a.matId), "a_" + a.id) : md(a.body || "")}</div>${a.vocab ? `<hr><div class="md">${md(a.vocab)}</div>` : ""}</div>
   <footer><button class="btn" data-pdf>Pobierz PDF</button><button class="btn primary" data-x>Zamknij</button></footer></div>`;
   document.body.appendChild(ov);
   ov.addEventListener("click", e => { if (e.target === ov || e.target.closest("[data-x]")) ov.remove(); else if (e.target.closest("[data-pdf]")) { ov.remove(); printDoc({ title: a.title, category: a.category, body: a.body, extra: a.vocab ? `<div class="pbreak md">${md(a.vocab)}</div>` : "" }); } });
@@ -1088,6 +1088,183 @@ function md(src) {
   }
   return out.join("");
 }
+/* ---------------- materiały interaktywne (luki, łączenie, wybór, „Sprawdź”) ---------------- */
+const IMD = {};
+function imdKey(key) {
+  const K = {};
+  let cur = null;
+  for (const line of String(key || "").split("\n")) {
+    const m = line.match(/^\*\*Zadanie (\d+):\*\*\s*(.*)$/);
+    if (!m) { const q = cur && line.match(/^(\d+)\.\s+(.*)$/); if (q) cur[q[1]] = q[2].trim(); else if (/^(\*\*|##)/.test(line)) cur = null; continue; }
+    const z = m[1], it = {}; K[z] = it; cur = m[2].trim() ? null : it;
+    for (const part of m[2].split(/\s·\s/)) { const q = part.trim().match(/^(\d+)\s*\.?\s*([\s\S]*)$/); if (q) it[q[1]] = q[2].trim(); }
+  }
+  return K;
+}
+const imdNorm = s => " " + String(s || "").toLowerCase().replace(/[’‘`´]/g, "'").replace(/…/g, " ")
+  .replace(/\bcan't\b/g, "cannot").replace(/\bwon't\b/g, "will not").replace(/\bshan't\b/g, "shall not").replace(/n't\b/g, " not")
+  .replace(/'ll\b/g, " will").replace(/'re\b/g, " are").replace(/'ve\b/g, " have").replace(/'m\b/g, " am").replace(/'d\b/g, " would")
+  .replace(/[.,!?;:"„”()]/g, " ").replace(/\s+/g, " ").trim() + " ";
+function imdAlts(ans) {
+  let a = String(ans || "").replace(/\*/g, "");
+  a = a.replace(/\s*\(([^)]*)\)/g, (all, x) => /[ąćęłńóśźż]|nie |zostaje|pasuje|BrE|AmE|zob|:/i.test(x) || /^[A-H]$/.test(x) ? "" : all);
+  const out = [];
+  for (let alt of a.split(/\s\/\s/)) {
+    alt = alt.trim(); if (!alt) continue;
+    let vs = [alt];
+    for (let g = 0; g < 4; g++) { const nx = []; for (const v of vs) { const m = v.match(/(\w)?\(([^)]+)\)/); if (!m) { nx.push(v); continue; } nx.push(v.replace(m[0], (m[1] || "") + m[2]), v.replace(m[0], (m[1] || ""))); } vs = nx; }
+    out.push(...vs);
+  }
+  return out;
+}
+function imd(body, key, uid) {
+  const K = imdKey(key); IMD[uid] = { K, store: {} };
+  const parts = String(body || "").replace(/\r/g, "").split(/^(?=\*\*Zadanie \d+\.\*\*)/m);
+  return parts.map(sec => {
+    const zm = sec.match(/^\*\*Zadanie (\d+)\.\*\*/); if (!zm || !K[zm[1]]) return md(sec);
+    if (!Object.keys(K[zm[1]]).length) return `<section class="izad" data-uid="${uid}">${md(sec)}<textarea class="iopen iessay" rows="10" placeholder="Napisz tutaj swoją wypowiedź…"></textarea><p class="small muted iwc">0 słów</p></section>`;
+    const z = zm[1], A = K[z], isLet = n => /^[A-Ha-h]$/.test(String(A[n] || "").replace(/\s*\(.*$/, "").trim());
+    const st = IMD[uid].store[z] = { choices: {}, bank: [], pp: {} }; let tbl = false, lastN = null, bankDone = false;
+    const L = sec.split("\n").map(line => {
+      if (!bankDone && /^>\s*[^*(>]+(\s·\s[^·]+){2,}$/.test(line) && !/\*\*\(/.test(line)) { bankDone = true; st.bank = line.replace(/^>\s*/, "").split(/\s·\s/).map(x => x.trim()).filter(Boolean); return "⟦W⟧"; }
+      if (line.startsWith(">")) return line.replace(/\*\*\((\d+)\)\*\*\s*_{3,}/g, (a, n) => `**(${n})** ⟦B¦${n}⟧`);
+      if (line.trim().startsWith("|")) {
+        const cells = line.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+        if (/^luka$/i.test(cells[0])) { tbl = true; return line; }
+        if (/^[\s:|-]+$/.test(line.trim())) return line;
+        if (tbl && /^\d+$/.test(cells[0])) return "| " + cells[0] + " | " + cells.slice(1).map((c, i) => `⟦T¦${cells[0]}¦${"ABCD"[i]}⟧${c}`).join(" | ") + " |";
+        const c0 = cells[0].match(/^(\d+)\.\s/), c1 = (cells[1] || "").match(/^([a-hA-H])\.\s/);
+        if (c0 || c1) return "| " + [c0 ? cells[0] + ` ⟦L¦${c0[1]}⟧` : cells[0], c1 ? `⟦X¦${c1[1].toUpperCase()}⟧` + cells[1] : (cells[1] || ""), ...cells.slice(2)].join(" | ") + " |";
+        return line;
+      }
+      let m;
+      if ((m = line.match(/^\s{2,}-\s([A-H])\.\s(.*)$/)) && lastN) return `    - ⟦M¦${lastN}¦${m[1]}⟧**${m[1]}.** ${m[2]}`;
+      if ((m = line.match(/^-\s([A-H])\.\s(.*)$/))) return `- ⟦X¦${m[1]}⟧**${m[1]}.** ${m[2]}`;
+      if ((m = line.match(/^(\d+)\.\s(.*)$/))) {
+        const n = m[1]; let t = m[2]; lastN = n; if (A[n] == null) return line;
+        if (/\*[^*]+ \/ [^*]+\*/.test(t)) { let i = 0; t = t.replace(/\*([^*]+ \/ [^*]+)\*/g, (a, x) => { st.choices[n + "_" + i] = x.split(/\s\/\s/).map(y => y.trim()); return `⟦C¦${n}¦${i++}⟧`; }); return `${n}. ${t}`; }
+        if (/\s_{3}\s*$/.test(t)) return `${n}. ${t.replace(/\s_{3}\s*$/, " ⟦PF¦" + n + "⟧")}`;
+        let k = 0; const t2 = t.replace(/_{4,}|……/g, () => `⟦G¦${n}¦${k++}⟧`);
+        if (k === 1) { const g = t.split(/_{4,}|……/); st.pp[n] = [g[0].split("→").pop().replace(/\(\*\*[A-Z' ]+\*\*\)/g, "").trim(), (g[1] || "").replace(/\([^)]*\)/g, "").trim()]; }
+        if (k) return `${n}. ${t2}`;
+        return `${n}. ${t} ⟦${isLet(n) ? "L" : "O"}¦${n}⟧`;
+      }
+      return line;
+    }).join("\n");
+    let h = md(L);
+    h = h.replace(/<p>⟦W⟧<\/p>/, st.bank.length ? `<div class="ibank">${st.bank.map((w, i) => `<span class="ichip" draggable="true" data-w="${esc(w)}">${esc(w)}</span>`).join("")}</div>` : "")
+      .replace(/<li>⟦M¦(\d+)¦([A-H])⟧/g, '<li class="iopt" data-n="$1" data-v="$2">')
+      .replace(/<td>⟦T¦(\d+)¦([A-D])⟧/g, '<td class="iopt" data-n="$1" data-v="$2">')
+      .replace(/<(li|td)>⟦X¦([A-H])⟧/g, '<$1 data-xl="$2">')
+      .replace(/⟦G¦(\d+)¦(\d+)⟧/g, '<input class="igap" data-n="$1" data-k="$2" autocomplete="off" autocapitalize="off" spellcheck="false">')
+      .replace(/⟦B¦(\d+)⟧/g, (a, n) => tbl ? `<span class="itsel" data-n="${n}">…</span>` : isLet(n) ? `<input class="ilet" data-n="${n}" maxlength="1" autocomplete="off">` : `<input class="igap" data-n="${n}" data-k="0" autocomplete="off" autocapitalize="off" spellcheck="false">`)
+      .replace(/⟦C¦(\d+)¦(\d+)⟧/g, (a, n, i) => `<span class="ich">${(st.choices[n + "_" + i] || []).map(o => `<button type="button" class="ichb" data-n="${n}" data-i="${i}" data-v="${esc(o)}">${esc(o)}</button>`).join('<span class="muted">/</span>')}</span>`)
+      .replace(/⟦PF¦(\d+)⟧/g, '<span class="ipf"><button type="button" class="ichb" data-n="$1" data-i="0" data-v="P">P</button><button type="button" class="ichb" data-n="$1" data-i="0" data-v="F">F</button></span>')
+      .replace(/⟦L¦(\d+)⟧/g, '<input class="ilet" data-n="$1" maxlength="1" autocomplete="off">')
+      .replace(/⟦O¦(\d+)⟧/g, '<textarea class="iopen" data-n="$1" rows="2" placeholder="Twoja odpowiedź"></textarea>');
+    return `<section class="izad" data-uid="${uid}" data-z="${z}">${h}<div class="ichk"><button type="button" class="btn sm primary" data-ichk>Sprawdź</button><button type="button" class="btn sm ghost" data-ishow hidden>Pokaż poprawne</button><button type="button" class="btn sm ghost" data-iclr>Wyczyść</button><span class="ires small"></span></div></section>`;
+  }).join("");
+}
+function imdItems(sec) {
+  const by = {};
+  sec.querySelectorAll("[data-n]").forEach(el => { if (el.closest(".izad") !== sec || el.classList.contains("ichip")) return; (by[el.dataset.n] = by[el.dataset.n] || []).push(el); });
+  return by;
+}
+function imdVal(els) {
+  const gaps = els.filter(e => e.classList.contains("igap")).sort((a, b) => a.dataset.k - b.dataset.k);
+  if (gaps.length) return { kind: "gap", vals: gaps.map(g => g.value), els: gaps };
+  const let_ = els.find(e => e.classList.contains("ilet")); if (let_) return { kind: "let", vals: [let_.value], els: [let_] };
+  const op = els.find(e => e.tagName === "TEXTAREA"); if (op) return { kind: "open", vals: [op.value], els: [op] };
+  const chs = els.filter(e => e.classList.contains("ichb") || e.classList.contains("iopt"));
+  if (chs.length) { const groups = {}; chs.forEach(c => (groups[c.dataset.i || "0"] = groups[c.dataset.i || "0"] || []).push(c)); const keys = Object.keys(groups).sort(); return { kind: "pick", vals: keys.map(k => (groups[k].find(c => c.classList.contains("sel")) || {}).dataset?.v || ""), els: keys.map(k => groups[k]), single: chs }; }
+  const ts = els.find(e => e.classList.contains("itsel")); if (ts) return { kind: "let", vals: [ts.dataset.v || ""], els: [ts] };
+  return null;
+}
+function imdOk(kind, vals, ans, pp) {
+  if (vals.every(v => !String(v).trim())) return false;
+  let alts = imdAlts(ans);
+  if (pp && vals.length === 1) { const pre = imdNorm(pp[0]).trim(), post = imdNorm(pp[1]).trim(); const ex = []; for (const a of alts) { let x = imdNorm(a).trim(); if (pre && x.startsWith(pre + " ")) x = x.slice(pre.length).trim(); if (post && x.endsWith(" " + post)) x = x.slice(0, -post.length).trim(); ex.push(x); if (pre) ex.push(imdNorm(pp[0] + " " + vals[0]).trim()); } const vv = imdNorm(vals[0]).trim(); if (ex.includes(vv) || alts.some(a => imdNorm(a).trim() === imdNorm(pp[0] + " " + vals[0] + " " + pp[1]).trim() || imdNorm(a).trim() === imdNorm(pp[0] + " " + vals[0]).trim())) return true; }
+  if (kind === "let" || (kind === "pick" && vals.length === 1 && /^[A-HPF]$/.test(vals[0]))) { const a = String(ans).replace(/\s*\(.*$/, "").trim().toUpperCase(); return vals[0].trim().toUpperCase() === a; }
+  if (kind === "pick" && vals.length > 1) { const parts = String(ans).split(/\s*[,;]\s*|\s·\s/); return vals.every((v, i) => imdAlts(parts[i] || parts[0]).some(a => imdNorm(a) === imdNorm(v))); }
+  const joined = imdNorm(vals.join(" "));
+  if (alts.some(a => imdNorm(a) === joined)) return true;
+  if (vals.length > 1) return alts.some(a => { const ps = a.split(/\s*…\s*|\s*,\s*/); return ps.length === vals.length && ps.every((p, i) => imdNorm(p) === imdNorm(vals[i])); });
+  return false;
+}
+function imdCheck(sec, show) {
+  const uid = sec.dataset.uid, z = sec.dataset.z, A = (IMD[uid] && IMD[uid].K[z]) || {}; const by = imdItems(sec);
+  let ok = 0, tot = 0, open = 0;
+  sec.querySelectorAll(".iref").forEach(e => e.remove()); sec.querySelectorAll(".icorr").forEach(e => e.classList.remove("icorr"));
+  for (const n of Object.keys(A)) {
+    const els = by[n]; if (!els) continue; const v = imdVal(els); if (!v) continue;
+    const ans = A[n];
+    if (v.kind === "open") { open++; v.els[0].insertAdjacentHTML("afterend", `<span class="iref">Klucz: ${esc(ans)}</span>`); continue; }
+    tot++; const good = imdOk(v.kind, v.vals, ans, v.kind === "gap" && IMD[uid].store[z] ? IMD[uid].store[z].pp[n] : null); if (good) ok++;
+    const flat = v.kind === "pick" ? v.els.flat().filter(c => c.classList.contains("sel")) : v.els;
+    els.forEach(e => e.classList.remove("ok", "bad"));
+    if (flat.length) flat.forEach(e => e.classList.add(good ? "ok" : "bad")); else (v.els.flat ? v.els.flat() : v.els).forEach(e => e.classList.add("bad"));
+    if (!good && show && v.kind === "pick" && v.single && v.single[0].classList.contains("iopt")) { const L = String(ans).replace(/\s*\(.*$/, "").trim().toUpperCase(); v.single.forEach(o => o.classList.toggle("icorr", o.dataset.v === L)); const ts = sec.querySelector(`.itsel[data-n="${n}"]`), co = v.single.find(o => o.dataset.v === L); if (ts && co) ts.insertAdjacentHTML("afterend", ` <span class="iref">✓ ${esc(co.textContent.trim())}</span>`); continue; }
+    if (!good && show) { const last = (v.kind === "pick" ? v.els.flat() : v.els).slice(-1)[0]; const host = last.closest("li,td,span.ich,span.ipf") || last; host.insertAdjacentHTML(host.tagName === "TD" || host.tagName === "LI" ? "beforeend" : "afterend", ` <span class="iref">✓ ${esc(String(ans).replace(/\s*\(\*[^)]*\)/g, ""))}</span>`); }
+  }
+  const r = sec.querySelector(".ires"); r.innerHTML = tot ? `<b style="color:var(--${ok === tot ? "ok" : ok >= tot / 2 ? "warn" : "bad"})">Dobrze: ${ok}/${tot}</b>${open ? ` · ${open} do porównania z kluczem` : ""}` : (open ? "Porównaj swoje odpowiedzi z kluczem." : "");
+  const sb = sec.querySelector("[data-ishow]"); if (sb) sb.hidden = ok === tot;
+}
+function imdCross(sec) {
+  const lets = [...sec.querySelectorAll("input.ilet")].filter(i => i.closest(".izad") === sec).map(i => i.value.trim().toUpperCase()).filter(Boolean);
+  const chosen = [...sec.querySelectorAll(".itsel")].map(s => s.dataset.v).filter(Boolean);
+  sec.querySelectorAll("[data-xl]").forEach(e => e.classList.toggle("iused", lets.includes(e.dataset.xl.toUpperCase())));
+  const vals = [...sec.querySelectorAll("input.igap")].map(i => imdNorm(i.value)).filter(v => v.trim());
+  sec.querySelectorAll(".ichip").forEach(c => { const w = imdNorm(c.dataset.w), ws = w.trim().split(" "); c.classList.toggle("iused", vals.some(v => v === w || (ws.length > 1 && v.trim().split(" ").slice(-1)[0] === ws.slice(-1)[0] && v.trim()[0] === ws[0][0]) || (ws.length === 1 && ws[0].length > 3 && v.trim().startsWith(ws[0].slice(0, -1))))); });
+  void chosen;
+}
+let IMD_FOCUS = null;
+document.addEventListener("focusin", e => { if (e.target.matches && e.target.matches("input.igap")) IMD_FOCUS = e.target; });
+document.addEventListener("input", e => {
+  const t = e.target; if (!t.closest || !t.closest(".izad")) return; const sec = t.closest(".izad");
+  if (t.classList.contains("ilet")) t.value = t.value.toUpperCase();
+  if (t.classList.contains("iessay")) { const w = (t.value.match(/[A-Za-z0-9'’-]+/g) || []).length; const c = sec.querySelector(".iwc"); if (c) c.textContent = w + " słów"; return; }
+  t.classList.remove("ok", "bad"); imdCross(sec);
+});
+document.addEventListener("click", e => {
+  const t = e.target; const sec = t.closest && t.closest(".izad"); if (!sec) return;
+  const opt = t.closest(".ichb, .iopt");
+  if (opt && opt.dataset.n) {
+    const grp = [...sec.querySelectorAll(`[data-n="${opt.dataset.n}"]`)].filter(x => (x.classList.contains("ichb") || x.classList.contains("iopt")) && (x.dataset.i || "0") === (opt.dataset.i || "0"));
+    const was = opt.classList.contains("sel"); grp.forEach(x => x.classList.remove("sel", "ok", "bad")); if (!was) opt.classList.add("sel");
+    if (opt.tagName === "TD") { const s = sec.querySelector(`.itsel[data-n="${opt.dataset.n}"]`); if (s) { s.dataset.v = was ? "" : opt.dataset.v; s.textContent = was ? "…" : opt.textContent; s.classList.remove("ok", "bad"); } }
+    return;
+  }
+  const chip = t.closest(".ichip");
+  if (chip) { let inp = IMD_FOCUS && IMD_FOCUS.closest(".izad") === sec && IMD_FOCUS.isConnected ? IMD_FOCUS : null; if (!inp || inp.value.trim()) inp = [...sec.querySelectorAll("input.igap")].find(i => !i.value.trim()) || inp; if (inp) { inp.value = chip.dataset.w; inp.classList.remove("ok", "bad"); const all = [...sec.querySelectorAll("input.igap")]; const nx = all[all.indexOf(inp) + 1]; (nx || inp).focus(); imdCross(sec); } return; }
+  if (t.closest("[data-ichk]")) { imdCheck(sec, false); return; }
+  if (t.closest("[data-ishow]")) { imdCheck(sec, true); return; }
+  if (t.closest("[data-iclr]")) { sec.querySelectorAll("input,textarea").forEach(i => { i.value = ""; i.classList.remove("ok", "bad"); }); sec.querySelectorAll(".sel,.ok,.bad,.icorr").forEach(x => x.classList.remove("sel", "ok", "bad", "icorr")); sec.querySelectorAll(".itsel").forEach(s => { s.dataset.v = ""; s.textContent = "…"; }); sec.querySelectorAll(".iref").forEach(x => x.remove()); sec.querySelector(".ires").textContent = ""; imdCross(sec); }
+});
+document.addEventListener("dragstart", e => { const c = e.target.closest && e.target.closest(".ichip"); if (c) e.dataTransfer.setData("text/plain", c.dataset.w); });
+document.addEventListener("dragover", e => { if (e.target.matches && e.target.matches("input.igap")) e.preventDefault(); });
+document.addEventListener("drop", e => { const t = e.target; if (!(t.matches && t.matches("input.igap"))) return; e.preventDefault(); t.value = e.dataTransfer.getData("text/plain"); t.classList.remove("ok", "bad"); imdCross(t.closest(".izad")); });
+const matKey = id => ((S.data.materials || {})[id] || {}).key || ((window.PE_SEED && window.PE_SEED.materials || []).find(x => x.id === id) || {}).key || "";
+(() => { const st = document.createElement("style"); st.textContent = `
+.izad{border-top:1px solid var(--line);padding-top:6px;margin-top:14px}
+.ichk{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 4px}
+.igap{font:inherit;border:0;border-bottom:2px solid var(--accent);background:var(--accent-soft);border-radius:4px 4px 0 0;padding:1px 6px;min-width:90px;width:auto;field-sizing:content;max-width:100%;color:var(--fg)}
+.ilet{font:inherit;font-weight:700;width:2.2em;text-align:center;border:2px solid var(--accent);border-radius:6px;padding:1px 0;margin-left:6px;text-transform:uppercase;background:var(--bg);color:var(--fg)}
+.iopen{display:block;width:100%;font:inherit;margin-top:6px;border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+.igap.ok,.ilet.ok,.iopen.ok{border-color:var(--ok);background:var(--ok-soft)}.igap.bad,.ilet.bad,.itsel.bad{border-color:var(--bad);background:var(--bad-soft)}
+.ich{display:inline-flex;gap:2px;align-items:center;white-space:nowrap}
+.ichb{font:inherit;font-style:italic;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:6px;padding:0 7px;cursor:pointer;margin:1px}
+.ipf .ichb{font-style:normal;font-weight:700;min-width:2em}
+.ichb.sel{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}.ichb.sel.ok{background:var(--ok);border-color:var(--ok)}.ichb.sel.bad{background:var(--bad);border-color:var(--bad)}
+.iopt{cursor:pointer;border-radius:6px;transition:background .1s}.iopt:hover{background:var(--accent-soft)}
+li.iopt.sel,td.iopt.sel{background:var(--accent-soft);outline:2px solid var(--accent)}li.iopt.sel.ok,td.iopt.sel.ok{background:var(--ok-soft);outline-color:var(--ok)}li.iopt.sel.bad,td.iopt.sel.bad{background:var(--bad-soft);outline-color:var(--bad)}
+.itsel{display:inline-block;min-width:70px;text-align:center;border-bottom:2px solid var(--accent);background:var(--accent-soft);border-radius:4px 4px 0 0;padding:0 6px;font-weight:600}.itsel.ok{border-color:var(--ok);background:var(--ok-soft)}
+.iused{text-decoration:line-through;opacity:.45}
+.iopt.icorr{outline:2px dashed var(--ok);background:var(--ok-soft)}
+.ibank{display:flex;flex-wrap:wrap;gap:6px;padding:10px;border:1px dashed var(--accent);border-radius:10px;margin:8px 0;background:var(--surface)}
+.ichip{cursor:grab;user-select:none;padding:4px 10px;border-radius:99px;background:var(--bg);border:1px solid var(--accent);color:var(--accent);font-weight:600;font-size:14px}
+.ichip.iused{background:transparent}
+.iref{display:inline-block;margin-left:6px;font-size:13px;font-weight:600;color:var(--ok)}textarea+.iref{display:block;margin:4px 0 0}
+`; document.head.appendChild(st); })();
 function renderMaterialy() {
   const all = Object.values(S.data.materials).sort((a, b) => (a.no || 0) - (b.no || 0) || a.title.localeCompare(b.title, "pl"));
   const cat = S.matCat || "all";
@@ -1219,13 +1396,20 @@ function noteCheck(id) {
 .nchk{display:grid;gap:14px;padding-left:22px}.nchkrow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px}.nchkrow input{max-width:220px}.nres{font-weight:600;font-size:14px;margin-top:4px}.nres.ok{color:var(--ok)}.nres.bad{color:var(--bad)}.nans{margin-top:4px;background:var(--surface);border-radius:8px;padding:6px 10px}
 .nnav{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;max-width:820px;margin:18px 0 8px}.ndz summary{display:flex;gap:10px;align-items:center;cursor:pointer;list-style:none}.ndz summary::-webkit-details-marker{display:none}.ndz summary b{flex:1}.ndz .list{margin-top:10px}
 @media print{#undoBtn{display:none!important}#printArea .nbox{break-inside:avoid;border-width:1px;-webkit-print-color-adjust:exact;print-color-adjust:exact}#printArea .nbox.sprawdz.pans{break-before:page}#printArea .nprline{border-bottom:1px dotted #999;height:22px}#printArea .note{gap:8px}#printArea mark{-webkit-print-color-adjust:exact;print-color-adjust:exact}}`; document.head.appendChild(st); })();
+function imdSnap() { return [...document.querySelectorAll(".izad")].map(sec => ({ z: sec.dataset.z, uid: sec.dataset.uid, v: [...sec.querySelectorAll("input,textarea")].map(i => i.value), sel: [...sec.querySelectorAll(".ichb,.iopt")].map(o => o.classList.contains("sel")), ts: [...sec.querySelectorAll(".itsel")].map(t => [t.dataset.v || "", t.textContent]) })); }
+function imdRestore(snap) {
+  for (const x of snap || []) { const sec = document.querySelector(`.izad[data-uid="${x.uid}"]${x.z ? `[data-z="${x.z}"]` : ":not([data-z])"}`); if (!sec) continue;
+    sec.querySelectorAll("input,textarea").forEach((i, k) => { if (x.v[k] != null) i.value = x.v[k]; }); sec.querySelectorAll(".ichb,.iopt").forEach((o, k) => o.classList.toggle("sel", !!x.sel[k])); sec.querySelectorAll(".itsel").forEach((t, k) => { if (x.ts[k]) { t.dataset.v = x.ts[k][0]; t.textContent = x.ts[k][1]; } }); if (x.z) imdCross(sec); }
+}
 function renderMat() {
   const m = S.data.materials[S.view.id]; if (!m) { S.view = null; return render(); }
+  const snap = imdSnap();
   root.innerHTML = frame(`<div class="head"><div><button class="btn sm ghost" data-act="back" style="justify-self:start">← Wróć</button><p class="eyebrow">${esc((MAT_CATS.find(c => c[0] === m.category) || ["", ""])[1])}</p><h1>${esc(m.title)}</h1></div>
   <div class="acts">${m.key ? `<button class="btn ${S.view.showKey ? "" : "mustard"}" data-act="toggleKey">${S.view.showKey ? "Ukryj klucz" : "Pokaż klucz odpowiedzi"}</button>` : ""}
   <button class="btn mustard" data-act="giveMat">Daj uczniowi</button><button class="btn primary" data-act="printMat" data-key="1">PDF z odpowiedziami</button><button class="btn" data-act="printMat" data-key="0">PDF bez odpowiedzi</button></div></div>
-  <article class="md">${md(m.body)}</article>
+  ${m.key ? `<p class="small muted" style="margin:0 0 8px">✏️ Wpisuj odpowiedzi w luki, klikaj wybrane opcje, a przy każdym zadaniu naciśnij „Sprawdź”. Słowa z ramek możesz kliknąć albo przeciągnąć do luki.</p>` : ""}<article class="md">${m.key ? imd(m.body, m.key, "m_" + m.id) : md(m.body)}</article>
   ${m.key && S.view.showKey ? `<section class="keybox md"><h2 style="border:0;margin:0;padding:0">Klucz odpowiedzi</h2>${md(m.key)}</section>` : ""}`);
+  imdRestore(snap);
 }
 
 
