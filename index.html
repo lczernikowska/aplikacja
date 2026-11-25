@@ -198,6 +198,24 @@ legend{font-weight:700;font-size:13px;padding:0 4px}
 .lz.cancelled,.lz.moved{background:var(--surface);text-decoration:line-through;color:var(--muted)}
 .day.today .lz{background:var(--bg)}
 @media (max-width:780px){.week{grid-template-columns:1fr}.day{min-height:0}}
+.gwrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--bg)}
+.ggrid{display:grid;grid-template-columns:44px repeat(7,minmax(92px,1fr));min-width:690px}
+.ghead{position:sticky;top:0;z-index:3;background:var(--bg);border-bottom:1px solid var(--line);padding:6px 4px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:1px}
+.ghead .gdow{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.ghead .gnum{font-size:18px;font-weight:700;width:32px;height:32px;line-height:32px;border-radius:50%}
+.ghead.today .gnum{background:var(--accent);color:var(--on-accent)}.ghead.today .gdow{color:var(--accent)}
+.gtimes{position:relative;border-right:1px solid var(--line)}
+.gtimes span{position:absolute;right:6px;transform:translateY(-50%);font-size:11px;color:var(--muted)}.gtimes span:first-child{transform:none}
+.gcol{position:relative;border-right:1px solid var(--line)}.gcol:last-child{border-right:0}
+.gcol.today{background:color-mix(in srgb,var(--accent) 4%,transparent)}
+.gslot{position:absolute;left:0;right:0;border:0;border-top:1px solid var(--line);background:transparent;cursor:pointer;padding:0}
+.gslot:hover{background:var(--accent-soft)}
+.gev{position:absolute;z-index:2;font:inherit;font-size:12px;line-height:1.25;text-align:left;border:0;border-left:3px solid var(--accent);border-radius:6px;padding:3px 5px;background:var(--accent-soft);color:var(--fg);cursor:pointer;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.gev b{display:block;font-size:11px}
+.gev.done{background:var(--ok-soft);border-left-color:var(--ok)}
+.gev.cancelled,.gev.moved{background:var(--surface);border-left-color:var(--line);color:var(--muted);text-decoration:line-through;opacity:.75}
+@media (max-width:700px){.ggrid{grid-template-columns:32px repeat(7,minmax(0,1fr));min-width:0}.gev{font-size:10px;padding:2px 3px;border-left-width:2px;overflow-wrap:anywhere}.gev b{font-size:10px}.ghead .gnum{font-size:15px;width:26px;height:26px;line-height:26px}.ghead .gdow{font-size:9px;letter-spacing:0}.gtimes span{font-size:9px;right:3px}}
+.gnow{position:absolute;left:0;right:0;height:2px;background:var(--bad);z-index:3}.gnow::before{content:"";position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--bad)}
 .month{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
 .mh{font-size:12px;font-weight:700;color:var(--muted);text-align:center;padding:4px 0}
 .mday{font:inherit;color:inherit;text-align:left;border:1px solid var(--line);border-radius:6px;min-height:84px;padding:4px 6px;cursor:pointer;background:var(--bg);display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -235,11 +253,11 @@ legend{font-weight:700;font-size:13px;padding:0 4px}
 <body>
 <div id="app"><div class="wrap"><p class="empty" style="padding-top:40px">Ładowanie…</p></div></div>
 <script src="config.js"></script>
-<script src="seed.js?v=1795629362"></script>
-<script src="notatki.ver.js?v=1795629362"></script>
-<script src="sklep.js?v=1795629362"></script>
+<script src="seed.js?v=1795629904"></script>
+<script src="notatki.ver.js?v=1795629904"></script>
+<script src="sklep.js?v=1795629904"></script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
-<script src="arkusze.js?v=1795629362"></script>
-<script type="module" src="app.js?v=1795629362"></script>
+<script src="arkusze.js?v=1795629904"></script>
+<script type="module" src="app.js?v=1795629904"></script>
 </body>
 </html>

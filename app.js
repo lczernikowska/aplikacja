@@ -1676,10 +1676,27 @@ function renderDzis() {
 
 /* ---------- Kalendarz ---------- */
 function renderKalendarz() {
-  S.calMode = S.calMode || (window.innerWidth < 700 ? "week" : "week"); S.calAnchor = S.calAnchor || today();
+  S.calMode = S.calMode || "grid"; S.calAnchor = S.calAnchor || today();
   const a = S.calAnchor, t = today(); const L = lessonsArr(); let body, label;
   const lz = l => `<button class="lz ${l.status}" data-act="editLesson" data-id="${l.id}"><b>${esc(l.time || "")}</b> ${esc(lzName(l))}</button>`;
-  if (S.calMode === "week") {
+  if (S.calMode === "grid") {
+    const m = mondayOf(a); const days = [...Array(7)].map((_, i) => addDays(m, i)); const PX = 52;
+    label = `${fmtDate(days[0])} – ${fmtDate(days[6])} ${parseD(days[6]).getFullYear()}`;
+    const mins = x => { const [h, mm] = (x || "00:00").split(":").map(Number); return h * 60 + (mm || 0); };
+    const wk = L.filter(l => l.date >= days[0] && l.date <= days[6] && l.time);
+    let h0 = 8, h1 = 21; for (const l of wk) { h0 = Math.min(h0, Math.floor(mins(l.time) / 60)); h1 = Math.max(h1, Math.ceil((mins(l.time) + (Number(l.duration) || 60)) / 60)); }
+    h1 = Math.min(24, h1); const hours = [...Array(h1 - h0)].map((_, i) => h0 + i);
+    const nowM = (() => { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); })();
+    const col = (d, i) => {
+      const ls = wk.filter(l => l.date === d).sort(byDT).map(l => ({ l, s: mins(l.time), e: mins(l.time) + (Number(l.duration) || 60) }));
+      const act = ls.filter(x => x.l.status !== "cancelled" && x.l.status !== "moved"); ls.filter(x => !act.includes(x)).forEach(x => { x.k = 0; x.n = 1; x.bg = 1; });
+      const lanes = []; for (const x of act) { let k = lanes.findIndex(end => end <= x.s); if (k < 0) { k = lanes.length; lanes.push(0); } lanes[k] = x.e; x.k = k; }
+      for (const x of act) x.n = Math.max(1, ...act.filter(y => y.s < x.e && y.e > x.s).map(y => y.k + 1));
+      return `<div class="gcol ${d === t ? "today" : ""}" style="height:${hours.length * PX}px">${hours.map(h => `<button class="gslot" style="top:${(h - h0) * PX}px;height:${PX}px" data-act="newLesson" data-date="${d}" data-time="${pad(h)}:00" aria-label="Dodaj lekcję ${esc(fmtDate(d))} ${h}:00"></button>`).join("")}${d === t && nowM >= h0 * 60 && nowM <= h1 * 60 ? `<div class="gnow" style="top:${(nowM - h0 * 60) / 60 * PX}px"></div>` : ""}${ls.map(x => `<button class="gev ${x.l.status}" data-act="editLesson" data-id="${x.l.id}" style="${x.bg ? "z-index:1;" : ""}top:${(x.s - h0 * 60) / 60 * PX}px;height:${Math.max(20, (x.e - x.s) / 60 * PX - 2)}px;left:calc(${x.k * 100 / x.n}% + 1px);width:calc(${100 / x.n}% - 2px)" title="${esc(x.l.time)}–${esc(endTime(x.l.time, x.l.duration).str)} ${esc(lzName(x.l))}"><b>${esc(x.l.time)}</b> ${esc(lzName(x.l))}</button>`).join("")}</div>`;
+    };
+    body = `<div class="gwrap"><div class="ggrid"><div class="ghead gcorner"></div>${days.map((d, i) => `<div class="ghead ${d === t ? "today" : ""}"><span class="gdow">${DOWS[i]}</span><span class="gnum">${parseD(d).getDate()}</span></div>`).join("")}
+      <div class="gtimes" style="height:${hours.length * PX}px">${hours.map(h => `<span style="top:${(h - h0) * PX}px">${h}:00</span>`).join("")}</div>${days.map(col).join("")}</div></div>`;
+  } else if (S.calMode === "week") {
     const m = mondayOf(a); const days = [...Array(7)].map((_, i) => addDays(m, i));
     label = `${fmtDate(days[0])} – ${fmtDate(days[6])} ${parseD(days[6]).getFullYear()}`;
     body = `<div class="week">${days.map((d, i) => { const ls = L.filter(l => l.date === d).sort(byDT); return `<section class="day ${d === t ? "today" : ""}"><h3><span>${DOWS[i]} ${parseD(d).getDate()}</span><button class="add" data-act="newLesson" data-date="${d}" aria-label="Dodaj lekcję: ${esc(fmtDate(d))}">+</button></h3>${ls.map(lz).join("")}${ls.some(l => l.status === "planned") && d >= t ? `<button class="dayx" data-act="cancelDay" data-date="${d}" title="Odwołaj wszystkie zaplanowane lekcje tego dnia (np. święto)">odwołaj dzień</button>` : ""}</section>`; }).join("")}</div>`;
@@ -1691,9 +1708,9 @@ function renderKalendarz() {
       return `<button class="mday ${out ? "out" : ""} ${d === t ? "today" : ""}" data-act="gotoWeek" data-date="${d}"><span class="d">${parseD(d).getDate()}</span>${ls.slice(0, 3).map(l => `<span class="e ${l.status}">${esc(l.time || "")} ${esc(lzName(l))}</span>`).join("")}${ls.length > 3 ? `<span class="e">+${ls.length - 3}</span>` : ""}${act ? `<span class="cnt">${act} ${plural(act, "lekcja", "lekcje", "lekcji")}</span>` : ""}</button>`; }).join("")}</div>`;
   }
   return `<div class="head"><div><p class="eyebrow">Kalendarz</p><h1>Lekcje</h1></div><div class="acts"><button class="btn primary" data-act="newLesson" data-date="${a >= t ? a : t}">+ Lekcja</button></div></div>
-  <div class="toolbar"><button class="btn sm" data-act="calMove" data-d="-1" aria-label="Wstecz">‹</button><button class="btn sm" data-act="calMove" data-d="1" aria-label="Dalej">›</button><button class="btn sm ghost" data-act="calToday">Dziś</button><span class="lbl">${esc(label)}</span><span style="flex:1"></span><div class="seg" role="group" aria-label="Widok"><button data-act="calMode" data-m="week" aria-pressed="${S.calMode === "week"}">Tydzień</button><button data-act="calMode" data-m="month" aria-pressed="${S.calMode === "month"}">Miesiąc</button></div></div>
+  <div class="toolbar"><button class="btn sm" data-act="calMove" data-d="-1" aria-label="Wstecz">‹</button><button class="btn sm" data-act="calMove" data-d="1" aria-label="Dalej">›</button><button class="btn sm ghost" data-act="calToday">Dziś</button><span class="lbl">${esc(label)}</span><span style="flex:1"></span><div class="seg" role="group" aria-label="Widok"><button data-act="calMode" data-m="grid" aria-pressed="${S.calMode === "grid"}">Tydzień</button><button data-act="calMode" data-m="week" aria-pressed="${S.calMode === "week"}">Lista</button><button data-act="calMode" data-m="month" aria-pressed="${S.calMode === "month"}">Miesiąc</button></div></div>
   ${body}
-  <p class="small muted">Kliknij lekcję, żeby ją przełożyć, odwołać, zmienić cenę albo dodać notatkę. Plus przy dniu dodaje lekcję.</p>`;
+  <p class="small muted">Kliknij lekcję, żeby ją przełożyć, odwołać, zmienić cenę albo dodać notatkę. ${S.calMode === "grid" ? "Kliknij puste pole w siatce, żeby dodać lekcję o tej godzinie." : "Plus przy dniu dodaje lekcję."}</p>`;
 }
 
 function gcalUrl(l, st, until) {
@@ -1707,7 +1724,7 @@ function gcalUrl(l, st, until) {
 
 function lessonForm(id, pre = {}) {
   if (!activeStudents().length && !id) { toast("Najpierw dodaj ucznia."); return; }
-  const l = id ? S.data.lessons[id] : { date: pre.date || today(), time: "16:00", duration: 60, status: "planned", studentId: pre.sid || "", note: "" };
+  const l = id ? S.data.lessons[id] : { date: pre.date || today(), time: pre.time || "16:00", duration: 60, status: "planned", studentId: pre.sid || "", note: "" };
   const st = id ? S.data.students[l.studentId] : null;
   const later = id && l.seriesId ? lessonsArr().filter(x => x.seriesId === l.seriesId && x.date > l.date && x.status === "planned").sort(byDT) : [];
   let foot = "";
@@ -2067,7 +2084,7 @@ async function saveContact(f) {
 
 /* ---------- obsługa akcji ---------- */
 async function korepAct(act, el) {
-  if (act === "newLesson") { lessonForm(null, { date: el.dataset.date, sid: el.dataset.sid }); return true; }
+  if (act === "newLesson") { lessonForm(null, { date: el.dataset.date, sid: el.dataset.sid, time: el.dataset.time }); return true; }
   if (act === "editLesson" || act === "moveLesson" || act === "setStatus") { await handleLessonAct(el); return true; }
   if (act === "newPayment") { paymentForm(el.dataset.sid || "", el.dataset.amt != null ? Number(el.dataset.amt) : undefined, el.dataset.note); return true; }
   if (act === "newCharge") { chargeForm(el.dataset.sid || ""); return true; }
@@ -2075,7 +2092,7 @@ async function korepAct(act, el) {
   if (act === "tGrp") { S.tGrp = el.dataset.k; render(); return true; }
   if (act === "toggleArchZ") { S.showArchZ = !S.showArchZ; render(); return true; }
   if (act === "toggleArch") { S.showArch = !S.showArch; render(); return true; }
-  if (act === "calMove") { const d = Number(el.dataset.d); S.calAnchor = S.calMode === "week" ? addDays(S.calAnchor, 7 * d) : (() => { const a = parseD(S.calAnchor); return iso(new Date(a.getFullYear(), a.getMonth() + d, 1)); })(); render(); return true; }
+  if (act === "calMove") { const d = Number(el.dataset.d); S.calAnchor = S.calMode !== "month" ? addDays(S.calAnchor, 7 * d) : (() => { const a = parseD(S.calAnchor); return iso(new Date(a.getFullYear(), a.getMonth() + d, 1)); })(); render(); return true; }
   if (act === "cancelDay") {
     const d = el.dataset.date; const ls = lessonsArr().filter(l => l.date === d && l.status === "planned");
     if (!ls.length) return true;
@@ -2087,7 +2104,7 @@ async function korepAct(act, el) {
   if (act === "morePay") { S.wplN = (S.wplN || 40) + 40; render(); return true; }
   if (act === "calToday") { S.calAnchor = today(); render(); return true; }
   if (act === "calMode") { S.calMode = el.dataset.m; render(); return true; }
-  if (act === "gotoWeek") { S.calAnchor = el.dataset.date; S.calMode = "week"; render(); return true; }
+  if (act === "gotoWeek") { S.calAnchor = el.dataset.date; S.calMode = "grid"; render(); return true; }
   if (act === "upTo") { S.upTo = el.dataset.v; render(); return true; }
   if (act === "upMove") { const [y, m] = S.upMonth.split("-").map(Number); const d = new Date(y, m - 1 + Number(el.dataset.d), 1); S.upMonth = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; render(); return true; }
   if (act === "copyMsg") { const r = upfront(S.upMonth).find(x => x.id === el.dataset.id); if (r) msgModal(upMsg(r, S.upMonth), `Wiadomość: ${r.s.name}`); return true; }
