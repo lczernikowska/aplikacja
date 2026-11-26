@@ -38,6 +38,7 @@ function demoBackend() {
     async reset() { },
     async get(c, id) { const d = (load()[c] || {})[id]; return d ? { id, ...clone(d) } : null; },
     async list(c, f) { let a = Object.entries(load()[c] || {}).map(([id, d]) => ({ id, ...clone(d) })); if (f) a = a.filter(x => x[f[0]] === f[1]); return a; },
+    async since(c, field, iso) { return Object.entries(load()[c] || {}).map(([id, d]) => ({ id, ...clone(d) })).filter(x => (x[field] || "") > iso); },
     async set(c, id, d) { const m = load(); (m[c] = m[c] || {})[id] = clone(d); save(); },
     async update(c, id, d) { const m = load(); m[c] = m[c] || {}; m[c][id] = deepMerge(m[c][id] || {}, clone(d)); save(); },
     async del(c, id) { const m = load(); if (m[c]) delete m[c][id]; save(); },
@@ -77,6 +78,7 @@ async function fbBackend() {
     reset: e => A.sendPasswordResetEmail(auth, e),
     async get(c, id) { const s = await F.getDoc(F.doc(db, c, id)); return s.exists() ? { ...s.data(), id: s.id } : null; },
     async list(c, f) { const q = f ? F.query(F.collection(db, c), F.where(f[0], "==", f[1])) : F.collection(db, c); const s = await F.getDocs(q); return s.docs.map(d => ({ ...d.data(), id: d.id })); },
+    async since(c, field, iso) { const s = await F.getDocs(F.query(F.collection(db, c), F.where(field, ">", iso))); return s.docs.map(d => ({ ...d.data(), id: d.id })); },
     set: (c, id, d) => F.setDoc(F.doc(db, c, id), d),
     update: (c, id, d) => F.setDoc(F.doc(db, c, id), d, { merge: true }),
     del: (c, id) => F.deleteDoc(F.doc(db, c, id)),
@@ -227,6 +229,17 @@ async function fullTestsCheck() {
 async function loadAdmin(light) {
   const by = a => Object.fromEntries(a.map(x => [x.id, x]));
   if (light && S.data && S.data.tests) {
+    /* Oszczędzanie odczytów bazy (darmowy limit 50 tys./dzień): między pełnymi odświeżeniami (co 30 min) pobieramy tylko nowe wyniki uczniów. */
+    let lastFull = 0; try { lastFull = Number(localStorage.getItem("pe_full_light") || 0); } catch (x) { }
+    if (Date.now() - lastFull < 30 * 60000 && B.since) {
+      const from = new Date(Math.min(lastRefresh || Date.now(), CACHE_AT || Date.now()) - 5 * 60000).toISOString(); CACHE_AT = 0;
+      const got = (await Promise.all([B.since("results", "submittedAt", from), B.since("results", "doneAt", from)].map(p => p.catch(() => [])))).flat();
+      for (const r of got) S.data.results[r.id] = r;
+      const need = [...new Set(got.map(r => r.testId).filter(id => id && !S.data.tests[id]))];
+      (await Promise.all(need.map(id => B.get("tests", id).catch(() => null)))).filter(Boolean).forEach(t => S.data.tests[t.id] = t);
+      return;
+    }
+    try { localStorage.setItem("pe_full_light", String(Date.now())); } catch (x) { }
     const L = ["students", "assignments", "results", "planState", "mathProgress", "lessons", "payments", "engProgress"];
     const got = await Promise.all(L.map(c => B.list(c)));
     L.forEach((c, i) => { S.data[c] = by(got[i]); });
@@ -1634,7 +1647,7 @@ async function autoComplete() {
 let refreshBusy = false, lastRefresh = Date.now();
 async function silentRefresh(force) {
   if (refreshBusy || !S.user || S.preview || S.busy || (S.view && S.view.type === "test")) return;
-  if (!force && Date.now() - lastRefresh < 60000) return;
+  if (!force && Date.now() - lastRefresh < (S.user.role === "admin" ? 60000 : 300000)) return;
   const ae = document.activeElement;
   if (document.querySelector(".ov") || (ae && /INPUT|TEXTAREA|SELECT/.test(ae.tagName))) return;
   refreshBusy = true;
@@ -2513,11 +2526,12 @@ function saveCache() {
     } catch (e) { console.warn("cache", e); }
   }, 800);
 }
+let CACHE_AT = 0;
 async function loadCache(u) {
   if (DEMO) return false;
   const c = await IDB.get(cacheKey(u)); if (!c || c.v !== 1 || c.role !== u.role || !c.data) return false;
   if (Date.now() - c.at > 14 * 864e5) return false;
-  S.data = c.data;
+  S.data = c.data; CACHE_AT = c.at;
   if (u.role === "admin") await syncLocalTests(Object.values(S.data.results || {}), true);
   return true;
 }
@@ -2530,7 +2544,7 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
   B.onAuth(async u => {
     S.user = u; S.view = null; S.data = null; UNDO.stack = []; UNDO.cur = null; undoBtn(); LOC_DONE = false;
     if (u) {
-      const fresh = async () => { const seq = WRITE_SEQ; if (u.role === "admin") { await loadAdmin(); if (WRITE_SEQ !== seq) await loadAdmin(true); await autoComplete(); mergeRedos().catch(() => {}); } else { await loadStudent(); if (WRITE_SEQ !== seq) await loadStudent(true); } saveCache(); };
+      const fresh = async () => { const seq = WRITE_SEQ; if (u.role === "admin") { let lf = 0; try { lf = Number(localStorage.getItem("pe_full_light") || 0); } catch (x) { } if (cached && Date.now() - lf < 30 * 60000 && Date.now() - CACHE_AT < 30 * 60000) await loadAdmin(true); else await loadAdmin(); if (WRITE_SEQ !== seq) await loadAdmin(true); await autoComplete(); mergeRedos().catch(() => {}); } else { await loadStudent(); if (WRITE_SEQ !== seq) await loadStudent(true); } saveCache(); };
       let cached = false; try { cached = await loadCache(u); } catch (e) { cached = false; }
       if (cached) {
         restoreLoc(); render(); afterRestoreRender();
