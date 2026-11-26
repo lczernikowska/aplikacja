@@ -66,7 +66,10 @@ async function fbBackend() {
         if ((u.email || "").toLowerCase() === adminEmail) return f({ uid: u.uid, email: u.email, role: "admin", name: CFG.teacherName || "Laura" });
         let prof = null;
         try { const s = await F.getDoc(F.doc(db, "users", u.uid)); prof = s.exists() ? s.data() : null; } catch (e) { }
-        f({ uid: u.uid, email: u.email, role: "student", studentId: prof?.studentId || null, name: prof?.name || u.email });
+        const ids = Array.isArray(prof?.studentIds) && prof.studentIds.length ? prof.studentIds : (prof?.studentId ? [prof.studentId] : []);
+        let pick = null; try { pick = localStorage.getItem("pe_sid_" + u.uid); } catch (e) { }
+        const sid = ids.includes(pick) ? pick : (prof?.studentId || ids[0] || null), names = prof?.names || {};
+        f({ uid: u.uid, email: u.email, role: "student", studentId: sid, studentIds: ids, names, name: names[sid] || prof?.name || u.email });
       });
     },
     login: (e, p) => A.signInWithEmailAndPassword(auth, e, p),
@@ -292,7 +295,7 @@ function frame(inner) {
   const tabs = u && u.role === "admin" && !S.view ? `<nav class="tabs">${NAV_GROUPS.map(([g, l, ks]) => `<button data-act="tab" data-k="${ks.includes(S.tab) ? S.tab : (S.lastSub[g] && g !== "platnosci" ? S.lastSub[g] : ks[0])}" ${ks.includes(S.tab) ? 'aria-current="page"' : ""}>${l}</button>`).join("")}</nav>` : "";
   const pv = S.preview ? `<div class="pvbar"><span>👁 Podgląd: tak widzi aplikację <b>${esc(S.user.name)}</b>. Nic tu nie zapisuje się na koncie ucznia.</span><button class="btn sm" data-act="endPreview">← Wróć do swojego widoku</button></div>` : "";
   return `${pv}<header class="top"><div class="wrap topin ${tabs ? "" : "solo"}"><span class="brand"><span class="dot"></span>PEWNY EGZAMIN</span>
-  ${u ? `<span class="who">${esc(u.name || u.email)}${B.demo ? ' <span class="chip mus">podgląd</span>' : ""}<button class="btn sm ghost" data-act="logout">Wyloguj</button></span>` : ""}${tabs}</div></header>
+  ${u && u.role === "student" && (u.studentIds || []).length > 1 ? `<span class="seg sw" role="group" aria-label="Przełącz ucznia">${u.studentIds.map(id => `<button data-act="switchStu" data-id="${id}" aria-pressed="${id === u.studentId}">${esc((u.names || {})[id] || "Uczeń")}</button>`).join("")}</span>` : ""}${u ? `<span class="who">${esc(u.name || u.email)}${B.demo ? ' <span class="chip mus">podgląd</span>' : ""}<button class="btn sm ghost" data-act="logout">Wyloguj</button></span>` : ""}${tabs}</div></header>
   <main class="wrap">${inner}</main>`;
 }
 function installHint() {
@@ -1884,7 +1887,11 @@ function studentModal(s) {
     else if (sec === "wpl") inner = `<div class="stats">${balanceBlock(b)}</div>${unpaidHtml(AL)}<div class="acts"><button class="btn sm primary" type="button" data-mact="newPayment">+ Wpłata</button><button class="btn sm" type="button" data-mact="newCharge">+ Zaległość</button><button class="btn sm ghost" type="button" data-mact="hidePay" title="Czy uczeń widzi w swojej aplikacji saldo, wpłaty i dane do przelewu">${s.hidePay ? "🙈 Ukryte przed uczniem – pokaż" : "👁 Uczeń widzi płatności – ukryj"}</button></div>
     ${P.length ? `<div class="list">${P.map(p => `<div class="row"><span class="grow"><b>${isCharge(p) ? "zaległość " : ""}${zl(Number(p.amount) || 0)}</b><span class="small muted">${esc(fmtDate(p.date))}${p.method ? " · " + esc(p.method) : ""}${p.note ? " · " + esc(p.note) : ""}</span>${isCharge(p) ? "" : coverHtml(AL.by[p.id])}</span>${isCharge(p) ? '<span class="chip warn">doliczone</span>' : '<span class="chip ok">wpłata</span>'}<button class="btn sm ghost" type="button" data-mact="delPay" data-id="${p.id}">usuń</button></div>`).join("")}</div>` : emptyP("Brak wpłat.")}`;
     else inner = `<dl class="kv">${[["Przedmioty", subjectsOf(s).map(x => `${SUBJ[x.subject]} (${LVL[x.level] || ""}) · ${zl(Number(x.rate) || 0)}`).join(", ")], ["Klasa", s.klasa], ["Cel", s.goal], ["Telefon", s.phone], ["E-mail", s.email], ["Telefon rodzica", s.parentPhone], ["E-mail rodzica", s.parentEmail], ["Konto w aplikacji", s.loginEmail || "brak"], ["Notatki", s.notes]].filter(x => x[1]).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>
-    <div class="acts"><button class="btn sm primary" type="button" data-mact="edit">Edytuj dane</button><button class="btn sm" type="button" data-mact="preview">👁 Zobacz jak uczeń</button>${s.loginEmail ? "" : `<button class="btn sm mustard" type="button" data-mact="login">Utwórz konto w aplikacji</button>`}</div>`;
+    <div class="acts"><button class="btn sm primary" type="button" data-mact="edit">Edytuj dane</button><button class="btn sm" type="button" data-mact="preview">👁 Zobacz jak uczeń</button>${s.loginEmail ? "" : `<button class="btn sm mustard" type="button" data-mact="login">Utwórz konto w aplikacji</button>`}</div>
+    ${(() => { const mates = activeStudents().filter(x => x.id !== s.id && x.uid && (!s.uid || x.uid === s.uid)); const shared = s.uid ? activeStudents().filter(x => x.id !== s.id && x.uid === s.uid) : [];
+      if (shared.length) return `<p class="small" style="margin-top:10px">👥 Wspólne konto z: <b>${shared.map(x => esc(x.name)).join(", ")}</b> – po zalogowaniu przełączają się u góry ekranu. <button class="btn sm ghost" type="button" data-mact="unlinkAcc">Odłącz ${esc(s.name)}</button></p>`;
+      if (s.uid || !mates.length) return "";
+      return `<div class="panel" style="margin-top:10px;padding:10px"><p class="small" style="margin:0 0 6px">👥 <b>Wspólne konto</b> – np. dla rodzeństwa: ${esc(s.name)} loguje się tym samym e-mailem co inny uczeń i przełącza się między profilami.</p><div class="acts"><select id="linkTo">${mates.map(x => `<option value="${x.id}">${esc(x.name)} (${esc(x.loginEmail || "")})</option>`).join("")}</select><button class="btn sm" type="button" data-mact="linkAcc">Połącz konta</button></div></div>`; })()}`;
     ov.innerHTML = `<div class="modal wide" role="dialog" aria-modal="true"><header><div><h2>${esc(s.name)}</h2><span class="small muted">${esc(subjectsOf(s).map(x => SUBJ[x.subject]).join(" + "))}${s.klasa ? " · " + esc(s.klasa) : ""} · <span style="color:var(--${b.bal > 0 ? "bad" : "ok"})">${b.bal > 0 ? "do zapłaty " + zl(b.bal) : b.bal < 0 ? "nadpłata " + zl(-b.bal) : "opłacone"}</span></span></div><button class="x" data-x aria-label="Zamknij">×</button></header>
     <div class="mb"><div class="subtabs" role="tablist">${tabsH}</div>${inner}</div></div>`;
     wireKind(ov);
@@ -1915,6 +1922,16 @@ function studentModal(s) {
       else if (k === "edit") { ov.remove(); studentForm(s.id); }
       else if (k === "preview") { ov.remove(); previewAs(s.id); }
       else if (k === "login") { ov.remove(); loginModal(s); }
+      else if (k === "linkAcc") { const o = S.data.students[ov.querySelector("#linkTo").value]; if (!o || !o.uid) return; if (!await ask(`Połączyć ${s.name} z kontem ${o.name} (${o.loginEmail})? Po zalogowaniu będzie można przełączać się między ich profilami.`, "Połącz")) return;
+        const u = await B.get("users", o.uid).catch(() => null) || { role: "student", studentId: o.id, name: o.name, email: o.loginEmail };
+        const ids = [...new Set([...(u.studentIds || [u.studentId || o.id]), s.id])], names = { ...(u.names || {}), [o.id]: o.name, [s.id]: s.name };
+        for (const id of ids) names[id] = (S.data.students[id] || {}).name || names[id];
+        await B.set("users", o.uid, { ...u, studentIds: ids, names }); await B.update("students", s.id, { loginEmail: o.loginEmail, uid: o.uid }); Object.assign(s, { loginEmail: o.loginEmail, uid: o.uid });
+        toast("Połączono – wspólne konto"); draw(); }
+      else if (k === "unlinkAcc") { if (!await ask(`Odłączyć ${s.name} od wspólnego konta? Ten profil zniknie z przełącznika.`, "Odłącz")) return;
+        const u = await B.get("users", s.uid).catch(() => null);
+        if (u) { const ids = (u.studentIds || [u.studentId]).filter(x => x !== s.id), names = { ...(u.names || {}) }; delete names[s.id]; await B.set("users", s.uid, { ...u, studentIds: ids, studentId: ids.includes(u.studentId) ? u.studentId : ids[0], names }); }
+        await B.update("students", s.id, { loginEmail: "", uid: "" }); Object.assign(s, { loginEmail: "", uid: "" }); toast("Odłączono"); draw(); }
       else if (k === "newLesson") { ov.remove(); lessonForm(null, { sid: s.id }); }
       else if (k === "newPayment") { ov.remove(); paymentForm(s.id); }
       else if (k === "newCharge") { ov.remove(); chargeForm(s.id); }
@@ -2208,6 +2225,8 @@ root.addEventListener("click", async e => {
     if (act === "logout" && S.preview) { endPreview(); return; }
     if (S.user && S.user.role === "admin" && await korepAct(act, el)) return;
     if (act === "tab") { S.tab = el.dataset.k; S.view = null; render(); window.scrollTo(0, 0); }
+    else if (act === "switchStu") { const id = el.dataset.id; if (!S.user || id === S.user.studentId) return; try { localStorage.setItem("pe_sid_" + S.user.uid, id); } catch (er) { }
+      S.user = { ...S.user, studentId: id, name: (S.user.names || {})[id] || S.user.name }; S.view = null; S.data = null; root.innerHTML = frame('<p class="empty">Ładowanie…</p>'); await loadStudent(); saveCache(); render(); window.scrollTo(0, 0); }
     else if (act === "logout") { S.view = null; const k = cacheKey(S.user); if (k) await IDB.del(k); await B.logout(); }
     else if (act === "hideInstall") { try { localStorage.setItem("pe_install_hidden", "1"); } catch (x) { } render(); }
     else if (act === "demoAdmin") B.demoLogin({ uid: "demo-admin", role: "admin", name: "Laura", email: "podglad" });
@@ -2481,7 +2500,7 @@ function draftLoad(id) {
   return d && d.answers ? d : { answers: {}, at: 0 };
 }
 function draftClear(id) { try { localStorage.removeItem("pe_draft_" + id); sessionStorage.removeItem("pe_draft_" + id); } catch (e) { } IDB.del("draftph:" + id); }
-const cacheKey = u => u ? "data:" + (u.uid || u.email || u.role) : null;
+const cacheKey = u => u ? "data:" + (u.uid || u.email || u.role) + (u.studentIds && u.studentIds.length > 1 ? ":" + u.studentId : "") : null;
 let cacheTimer = null, WRITE_SEQ = 0;
 function saveCache() {
   if (DEMO || !S.user || !S.data || S.preview) return;

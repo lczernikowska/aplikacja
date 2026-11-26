@@ -1,11 +1,13 @@
 rules_version = '2';
-// Reguły bazy: Laura widzi i zmienia wszystko, uczeń widzi tylko swoje zadania i wyniki.
+// Reguły bazy: Laura widzi i zmienia wszystko, uczeń widzi tylko swoje zadania i wyniki (przy wspólnym koncie – zadania wszystkich połączonych profili).
 // ZMIEŃ e-mail poniżej, jeśli logujesz się innym adresem niż w config.js.
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
     function isAdmin() { return signedIn() && request.auth.token.email == 'l.czernikowska@gmail.com'; }
-    function myStudentId() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.studentId; }
+    function me() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    // wspólne konto (np. rodzeństwo): lista studentIds; stare konta mają tylko studentId
+    function myIds() { return me().get('studentIds', [me().studentId]); }
 
     match /users/{uid} {
       allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
@@ -16,23 +18,23 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
     match /assignments/{id} {
-      allow read: if isAdmin() || (signedIn() && resource.data.studentId == myStudentId());
+      allow read: if isAdmin() || (signedIn() && resource.data.studentId in myIds());
       allow write: if isAdmin();
     }
     match /results/{id} {
-      allow read: if isAdmin() || (signedIn() && resource.data.studentId == myStudentId());
+      allow read: if isAdmin() || (signedIn() && resource.data.studentId in myIds());
       allow create: if isAdmin() || (signedIn()
-        && request.resource.data.studentId == myStudentId()
+        && request.resource.data.studentId in myIds()
         && request.resource.data.assignmentId == id
-        && get(/databases/$(database)/documents/assignments/$(id)).data.studentId == myStudentId());
+        && get(/databases/$(database)/documents/assignments/$(id)).data.studentId in myIds());
       allow update, delete: if isAdmin();
     }
     match /lessons/{id} {
-      allow read: if isAdmin() || (signedIn() && resource.data.studentId == myStudentId());
+      allow read: if isAdmin() || (signedIn() && resource.data.studentId in myIds());
       allow write: if isAdmin();
     }
     match /payments/{id} {
-      allow read: if isAdmin() || (signedIn() && resource.data.studentId == myStudentId());
+      allow read: if isAdmin() || (signedIn() && resource.data.studentId in myIds());
       allow write: if isAdmin();
     }
     match /settings/{id} {
@@ -40,15 +42,15 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
     match /students/{id} {
-      allow read: if isAdmin() || (signedIn() && id == myStudentId());
+      allow read: if isAdmin() || (signedIn() && id in myIds());
       allow write: if isAdmin();
     }
     match /engProgress/{id} {
-      allow read: if isAdmin() || (signedIn() && id == myStudentId());
+      allow read: if isAdmin() || (signedIn() && id in myIds());
       allow write: if isAdmin();
     }
     match /mathProgress/{id} {
-      allow read: if isAdmin() || (signedIn() && id == myStudentId());
+      allow read: if isAdmin() || (signedIn() && id in myIds());
       allow write: if isAdmin();
     }
     match /{col}/{id} {
