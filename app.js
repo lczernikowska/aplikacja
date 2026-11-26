@@ -1616,12 +1616,25 @@ function openModal({ title, body, submit, foot = "", wide = false, onMount, onSu
 let autoBusy = false;
 async function mergeRedos() {
   const RB = Object.getPrototypeOf(B) || B; let n = 0;
+  /* Poprawa poprawy: wyniki scalamy zawsze z PIERWOTNYM testem (a.only to numery zadań w całym teście).
+     Naprawa danych: wcześniej poprawa poprawy była wpisywana do wyniku poprzedniej poprawy (inna numeracja zadań) i psuła jej punkty. */
+  const rootOf = a => { let x = a, g = 0; while (x && x.redoOf && S.data.assignments[x.redoOf] && S.data.assignments[x.redoOf].only && g++ < 20) x = S.data.assignments[x.redoOf]; return x && x.redoOf ? x.redoOf : null; };
   for (const a of Object.values(S.data.assignments || {})) {
     if (!a.redoOf || !a.only || !a.only.length) continue;
-    const rr = S.data.results[a.id], ro = S.data.results[a.redoOf], t = S.data.tests[a.testId];
+    const rr = S.data.results[a.id], t = S.data.tests[a.testId];
+    if (!rr || !t || !t.questions || !rr.redoApplied) continue;
+    const answers = {}, over = {}, op = {}; a.only.forEach((_, j) => { if ((rr.answers || {})[j] !== undefined) answers[j] = rr.answers[j]; if ((rr.over || {})[j] != null) over[j] = rr.over[j]; if ((rr.openPts || {})[j] != null) op[j] = rr.openPts[j]; });
+    const sub = subsetTest(t, a.only), cs = scoreTest(sub, answers, over);
+    const fix = { answers, over, openPts: op, closedScore: cs, closedMax: maxTest(sub), score: cs + openSum(sub, op), max: maxTest(sub) + openMax(sub), redoApplied: null, firstScore: null, firstMax: null, correctedAt: null };
+    try { await RB.update("results", a.id, fix); Object.assign(rr, fix); for (const k of ["redoApplied", "firstScore", "firstMax", "correctedAt"]) delete rr[k]; n++; } catch (e) { console.warn("fix redo", e); }
+  }
+  const touched = new Set();
+  for (const a of Object.values(S.data.assignments || {}).sort((x, y) => (x.createdAt || "").localeCompare(y.createdAt || ""))) {
+    if (!a.redoOf || !a.only || !a.only.length) continue;
+    const rootId = rootOf(a); const rr = S.data.results[a.id], ro = rootId && S.data.results[rootId], t = S.data.tests[a.testId];
     if (!rr || !ro || !t || !t.questions) continue;
     const sig = stable({ a: rr.answers || {}, o: rr.over || {}, p: rr.openPts || {} });
-    if ((ro.redoApplied || {})[a.id] === sig) continue;
+    if ((ro.redoApplied || {})[a.id] === sig && !touched.has(rootId)) continue;
     const answers = { ...(ro.answers || {}) }, over = { ...(ro.over || {}) }, openPtsM = { ...(ro.openPts || {}) };
     a.only.forEach((i, j) => {
       const ans = (rr.answers || {})[j]; if (ans !== undefined) answers[i] = ans; else delete answers[i];
@@ -1630,7 +1643,7 @@ async function mergeRedos() {
     });
     const cs = scoreTest(t, answers, over), og = openSum(t, openPtsM);
     const upd = { answers, over, openPts: openPtsM, closedScore: cs, score: cs + og, firstScore: ro.firstScore ?? ro.score, firstMax: ro.firstMax ?? ro.max, correctedAt: rr.submittedAt || new Date().toISOString(), redoApplied: { ...(ro.redoApplied || {}), [a.id]: sig } };
-    try { await RB.update("results", a.redoOf, upd); Object.assign(ro, upd); n++; } catch (e) { console.warn("merge redo", e); }
+    try { await RB.update("results", rootId, upd); Object.assign(ro, upd); touched.add(rootId); n++; } catch (e) { console.warn("merge redo", e); }
   }
   return n;
 }
