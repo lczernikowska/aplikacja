@@ -726,6 +726,8 @@ function qHtml(q, n, answers, mode) {
   if (q.type === "open" && q.write) {
     const g = (rv.openPts || {})[n]; const txt = mode === "take" ? (mine ?? q.start ?? "") : (mine || "");
     const wc = s => (String(s).trim().match(/\S+/g) || []).length;
+    if (q.short) { const gr = mode === "result" ? (isAdmin ? `<label class="f gpts" style="margin-top:6px">Punkty<span style="display:flex;gap:8px;align-items:center"><input type="number" min="0" max="${q.pts}" step="1" data-gpts="${n}" value="${g ?? ""}" style="width:90px"> <span class="muted">/ ${q.pts} pkt</span></span></label>` : `<span class="verdict ${g == null ? "" : g >= q.pts ? "ok" : "bad"}">${g == null ? "Czeka na sprawdzenie" : `${g}/${q.pts} pkt`}</span>`) : "";
+      return `<div class="q"><span class="qn">${esc(label)} <span class="chip">wpisz wynik · sprawdza nauczycielka</span></span>${q.t ? `<p class="qt" style="margin:6px 0 8px">${esc(q.t)}</p>` : ""}${mode === "take" ? `<input type="text" data-essay="${n}" value="${esc(txt)}" placeholder="Twój wynik" style="max-width:320px">` : `<div class="essayout" style="min-height:0">${esc(txt) || "<i>– brak odpowiedzi –</i>"}</div>`}${gr}</div>`; }
     const body = mode === "take" ? `<textarea class="essay" rows="16" data-essay="${n}">${esc(txt)}</textarea><span class="small muted" data-wc="${n}">Liczba wyrazów: ${wc(txt)}${q.words ? ` (wymagane ${q.words[0]}–${q.words[1]})` : ""}</span>`
       : mode === "result" ? `<div class="essayout">${esc(txt) || "<i>– brak tekstu –</i>"}</div><span class="small muted">Liczba wyrazów: ${wc(txt)}${q.words ? ` (wymagane ${q.words[0]}–${q.words[1]})` : ""}</span>
         ${isAdmin ? `<label class="f gpts">Punkty za wypowiedź<span style="display:flex;gap:8px;align-items:center"><input type="number" min="0" max="${q.pts}" step="1" data-gpts="${n}" value="${g ?? ""}" style="width:90px"> <span class="muted">/ ${q.pts} pkt</span></span></label>` : `<span class="verdict ${g == null ? "" : "ok"}">${g == null ? "Czeka na ocenę" : `Ocena: ${g}/${q.pts} pkt`}</span>`}` : "";
@@ -745,7 +747,7 @@ function qHtml(q, n, answers, mode) {
   }
   const L = q.L || (q.type === "tf" ? null : "ABCDEFGH".split(""));
   const bare = !q.o && q.type !== "tf";
-  const opts = q.type === "tf" ? opt(true, "P", "Prawda") + opt(false, "F", "Fałsz") : (q.o || L.slice(0, (q.L || []).length || 4)).map((o, k) => opt(k, L[k], q.o ? o : "")).join("");
+  const opts = q.type === "tf" ? opt(true, "P", "Prawda") + opt(false, "F", "Fałsz") : (q.o || q.Lb || L.slice(0, (q.L || []).length || 4)).map((o, k) => opt(k, q.Lb ? q.Lb[k] : L[k], q.o ? o : "")).join("");
   let verdict = "";
   if (review) {
     const pts = qScore(q, mine), max = qMax(q);
