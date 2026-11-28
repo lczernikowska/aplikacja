@@ -2481,8 +2481,8 @@ function withUndo(B) {
   // stan „przed” bierzemy z pamięci aplikacji (bez dodatkowego zapytania do serwera – to spowalniało każdy zapis)
   const before = async (c, id) => { const x = cached(c, id); if (x !== undefined) return stripId(x); try { return stripId(await B.get(c, id)); } catch (e) { return null; } };
   const W = Object.create(B);
-  for (const m of ["set", "update", "del"]) W[m] = async (c, id, d) => { WRITE_SEQ++; if (isAdmin()) undoRec(c, id, await before(c, id)); return B[m](c, id, d); };
-  W.bulk = async (c, entries, onProg) => { if (isAdmin()) for (const [id] of entries) { const x = cached(c, id); undoRec(c, id, x === undefined ? null : stripId(x)); } return B.bulk(c, entries, onProg); };
+  for (const m of ["set", "update", "del"]) W[m] = async (c, id, d) => { WRITE_SEQ++; if (isAdmin()) undoRec(c, id, await before(c, id)); const res = await B[m](c, id, d); setTimeout(saveCache, 0); return res; };
+  W.bulk = async (c, entries, onProg) => { if (isAdmin()) for (const [id] of entries) { const x = cached(c, id); undoRec(c, id, x === undefined ? null : stripId(x)); } const res = await B.bulk(c, entries, onProg); setTimeout(saveCache, 0); return res; };
   return W;
 }
 function undoBtn() {
@@ -2530,7 +2530,7 @@ function draftLoad(id) {
 function draftClear(id) { try { localStorage.removeItem("pe_draft_" + id); sessionStorage.removeItem("pe_draft_" + id); } catch (e) { } IDB.del("draftph:" + id); }
 const cacheKey = u => u ? "data:" + (u.uid || u.email || u.role) + (u.studentIds && u.studentIds.length > 1 ? ":" + u.studentId : "") : null;
 let cacheTimer = null, WRITE_SEQ = 0;
-function saveCache() {
+function saveCache(now) {
   if (DEMO || !S.user || !S.data || S.preview) return;
   clearTimeout(cacheTimer);
   cacheTimer = setTimeout(() => {
@@ -2539,7 +2539,7 @@ function saveCache() {
       if (S.user.role === "admin" && d.tests) { const t = {}; for (const [k, v] of Object.entries(d.tests)) if (!v._local) { const { _pub, _local, ...rest } = v; t[k] = rest; } d.tests = t; }
       IDB.set(cacheKey(S.user), { v: 1, at: Date.now(), role: S.user.role, data: JSON.parse(JSON.stringify(d)) });
     } catch (e) { console.warn("cache", e); }
-  }, 800);
+  }, now ? 0 : 800);
 }
 let CACHE_AT = 0;
 async function loadCache(u) {
@@ -2551,7 +2551,8 @@ async function loadCache(u) {
   return true;
 }
 const safeToRerender = () => !document.querySelector(".ov") && !(document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) && !(S.view && S.view.type === "test" && S.view.mode === "take");
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") saveCache(); });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") saveCache(true); });
+window.addEventListener("pagehide", () => saveCache(true));
 /* ---------------- start ---------------- */
 (async () => {
   try { B = withUndo(DEMO ? demoBackend() : await fbBackend()); }
