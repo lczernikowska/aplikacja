@@ -566,7 +566,8 @@ function previewAs(sid) {
   const results = {}; for (const r of Object.values(S.data.results)) if (r.studentId === sid) results[r.assignmentId || r.id] = r;
   S.preview = { user: S.user, data: S.data, tab: S.tab, view: S.view };
   S.data = { assignments: Object.fromEntries(A.map(a => [a.id, a])), results, tests, lessons: Object.values(S.data.lessons).filter(l => l.studentId === sid), payments: Object.values(S.data.payments).filter(p => p.studentId === sid), settings: S.data.settings, me: st, engP: S.data.engProgress[sid] || null, mathP: S.data.mathProgress[sid] || null };
-  S.user = { role: "student", studentId: sid, name: st.name, uid: "preview" }; S.view = null;
+  const sib = st.uid ? Object.values(S.preview.data.students).filter(x => x.uid === st.uid && !x.archived) : [];
+  S.user = { role: "student", studentId: sid, name: st.name, uid: "preview", ...(sib.length > 1 ? { studentIds: sib.map(x => x.id), names: Object.fromEntries(sib.map(x => [x.id, x.name])) } : {}) }; S.view = null;
   undoBtn(); render(); window.scrollTo(0, 0);
 }
 function endPreview() { const p = S.preview; if (!p) return; S.user = p.user; S.data = p.data; S.tab = p.tab; S.view = p.view; S.preview = null; undoBtn(); render(); }
@@ -2287,6 +2288,7 @@ root.addEventListener("click", async e => {
     if (act === "logout" && S.preview) { endPreview(); return; }
     if (S.user && S.user.role === "admin" && await korepAct(act, el)) return;
     if (act === "tab") { S.tab = el.dataset.k; S.view = null; render(); window.scrollTo(0, 0); }
+    else if (act === "switchStu" && S.preview) { const id = el.dataset.id; if (id === S.user.studentId) return; const P = S.preview; S.user = P.user; S.data = P.data; S.tab = P.tab; S.view = P.view; S.preview = null; previewAs(id); }
     else if (act === "switchStu") { const id = el.dataset.id; if (!S.user || id === S.user.studentId) return; try { localStorage.setItem("pe_sid_" + S.user.uid, id); } catch (er) { }
       S.user = { ...S.user, studentId: id, name: (S.user.names || {})[id] || S.user.name }; S.view = null; S.data = null; root.innerHTML = frame('<p class="empty">Ładowanie…</p>'); await loadStudent(); saveCache(); render(); window.scrollTo(0, 0); }
     else if (act === "logout") { S.view = null; const k = cacheKey(S.user); if (k) await IDB.del(k); await B.logout(); }
