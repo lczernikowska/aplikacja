@@ -1756,6 +1756,7 @@ function lessonForm(id, pre = {}) {
   if (!activeStudents().length && !id) { toast("Najpierw dodaj ucznia."); return; }
   const l = id ? S.data.lessons[id] : { date: pre.date || today(), time: pre.time || "16:00", duration: 60, status: "planned", studentId: pre.sid || "", note: "" };
   const st = id ? S.data.students[l.studentId] : null;
+  const SER_END = id && l.seriesId ? lessonsArr().filter(x => x.seriesId === l.seriesId).map(x => x.date).sort().pop() : "";
   const later = id && l.seriesId ? lessonsArr().filter(x => x.seriesId === l.seriesId && x.date > l.date && x.status === "planned").sort(byDT) : [];
   let foot = "";
   if (id) {
@@ -1769,6 +1770,7 @@ function lessonForm(id, pre = {}) {
   <div class="frow"><label class="f">Data<input name="date" type="date" required value="${esc(l.date)}"></label><label class="f">Godzina<input name="time" type="time" required value="${esc(l.time || "")}"></label><label class="f">Czas (min)<input name="duration" type="number" min="15" step="5" value="${esc(l.duration || 60)}"></label></div>
   <div class="frow">${id ? `<label class="f">Status<select name="status">${opts(STATUS, l.status)}</select></label>` : ""}<label class="f">Cena (zł)<input name="price" type="number" min="0" step="1" inputmode="decimal" value="${id ? esc(l.price ?? "") : ""}" placeholder="stawka ucznia"></label></div>
   ${later.length ? `<fieldset><legend>Zmiany zastosuj do</legend><label class="check"><input type="radio" name="scope" value="one" checked> tylko tej lekcji</label><label class="check"><input type="radio" name="scope" value="series"> tej i ${later.length} ${plural(later.length, "kolejnej", "kolejnych", "kolejnych")} z serii (do ${esc(fmtDate(later[later.length - 1].date))})</label><span class="small muted">W całej serii zmienią się godzina, czas trwania, przedmiot, cena i dzień tygodnia. Notatka i status zmienią się tylko w tej lekcji.</span></fieldset>` : ""}
+  ${id && l.seriesId ? `<label class="f">Seria trwa do (ostatnia lekcja)<input name="seriesEnd" type="date" value="${esc(SER_END)}"><span class="small muted">Zmień, żeby skrócić albo przedłużyć całą serię.</span></label>` : ""}
   ${id ? "" : `<label class="check"><input type="checkbox" name="repeat" data-lrep> Powtarzaj co tydzień</label><label class="f" data-luntil hidden>Do kiedy<input name="until" type="date" value="${schoolYearEnd()}"></label>`}
   <label class="f">Notatka z lekcji<textarea name="note" rows="3" placeholder="Co przerobiłyście, co na następny raz">${esc(l.note || "")}</textarea></label>`,
     onMount: f => {
@@ -1802,14 +1804,16 @@ function lessonForm(id, pre = {}) {
       if (id && base.status !== "done") base.autoDone = false;
       if (id) {
         await putDoc("lessons", id, base);
+        const newEnd = String(fd.get("seriesEnd") || ""); let endMsg = "";
+        const applyEnd = async () => { if (l.seriesId && newEnd && newEnd !== SER_END) { const r = await setSeriesEnd(l.seriesId, newEnd); endMsg = r.del ? ` · usunięto ${r.del} z końca serii` : r.add ? ` · dodano ${r.add} na końcu serii` : ""; } };
         if (fd.get("scope") === "series" && later.length) {
           const shift = Math.round((parseD(date) - parseD(l.date)) / 864e5);
           const batch = later.map(x => { const { id: xid, ...rest } = x; return [xid, { ...rest, studentId: sid, subject, time, duration: base.duration, price, date: addDays(x.date, shift), updatedAt: base.updatedAt }]; });
           await B.bulk("lessons", batch); for (const [k, v] of batch) S.data.lessons[k] = { id: k, ...v };
           const n = batch.length;
-          toast(`Zmieniono ${n + 1} ${plural(n + 1, "lekcję", "lekcje", "lekcji")} w serii`); return true;
+          await applyEnd(); toast(`Zmieniono ${n + 1} ${plural(n + 1, "lekcję", "lekcje", "lekcji")} w serii${endMsg}`); return true;
         }
-        toast("Zapisano lekcję"); return true;
+        await applyEnd(); toast("Zapisano lekcję" + endMsg); return true;
       }
       if (fd.get("repeat")) {
         const until = String(fd.get("until") || ""); if (!until || until < date) { toast("Data końca musi być po pierwszej lekcji."); return false; }
@@ -1821,6 +1825,34 @@ function lessonForm(id, pre = {}) {
       await putDoc("lessons", rid(), { ...base, createdAt: base.updatedAt }); toast("Dodano lekcję"); return true;
     }
   });
+}
+async function setSeriesEnd(seriesId, end) {
+  const all = lessonsArr().filter(x => x.seriesId === seriesId).sort(byDT);
+  if (!all.length || !end) return { del: 0, add: 0 };
+  const del = all.filter(x => x.date > end && x.status === "planned");
+  await Promise.all(del.map(x => delDoc("lessons", x.id)));
+  const rest = all.filter(x => x.date <= end), tpl = rest[rest.length - 1]; let add = 0;
+  if (tpl) {
+    const now = new Date().toISOString(); const { id: _i, movedTo, movedToDate, movedToTime, autoDone, ...b } = tpl; const batch = []; let d = addDays(tpl.date, 7);
+    while (d <= end && batch.length < 60) { batch.push([rid(), { ...b, date: d, status: "planned", note: "", createdAt: now, updatedAt: now }]); d = addDays(d, 7); }
+    if (batch.length) { await B.bulk("lessons", batch); for (const [k, v] of batch) S.data.lessons[k] = { id: k, ...v }; add = batch.length; }
+  }
+  return { del: del.length, add };
+}
+function endDateForm(sid) {
+  const t = today(); const ls = lessonsArr().filter(l => l.studentId === sid && l.date >= t && l.status === "planned").sort(byDT);
+  const last = ls.length ? ls[ls.length - 1].date : schoolYearEnd();
+  openModal({ title: `Data końca zajęć: ${sName(sid)}`, submit: "Zapisz", body: `<p class="small muted">Teraz ostatnia zaplanowana lekcja: <b>${ls.length ? esc(fmtDate(last)) : "brak"}</b>. Wcześniejsza data usunie zaplanowane lekcje po niej (odbyte i odwołane zostają). Późniejsza data dopisze kolejne lekcje co tydzień w tych samych dniach i godzinach.</p>
+  <label class="f">Ostatni dzień zajęć<input type="date" name="end" required value="${esc(last)}"></label>`,
+    onSubmit: async fd => {
+      const end = String(fd.get("end") || ""); if (!end) return false;
+      const sids = [...new Set(lessonsArr().filter(l => l.studentId === sid && l.seriesId && l.date >= addDays(t, -14)).map(l => l.seriesId))];
+      let del = 0, add = 0;
+      for (const x of sids) { const r = await setSeriesEnd(x, end); del += r.del; add += r.add; }
+      const single = lessonsArr().filter(l => l.studentId === sid && !l.seriesId && l.date > end && l.status === "planned");
+      await Promise.all(single.map(l => delDoc("lessons", l.id))); del += single.length;
+      toast(del || add ? `${del ? "Usunięto " + del + " " + plural(del, "lekcję", "lekcje", "lekcji") : ""}${del && add ? ", " : ""}${add ? "dodano " + add + " " + plural(add, "lekcję", "lekcje", "lekcji") : ""}` : "Bez zmian"); render(); return true;
+    } });
 }
 function moveForm(id) {
   const l = S.data.lessons[id]; if (!l) return;
@@ -1909,7 +1941,7 @@ function studentModal(s) {
     if (sec === "zad") inner = `<form class="panel" style="padding:14px 16px;display:grid;gap:12px" id="stAssign"><h3>Zadaj zadanie</h3>${assignFormHtml(s.id)}</form>
     <section><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Zadania ucznia</h3><span style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="btn sm" data-series>🗂 Seria (fiszki / czytanki / matury)</button><button type="button" class="btn sm" data-remind>💬 Przypomnienie o zadaniach</button></span></div>${(ROWS = [...as, ...asArch].map(a => { const r = S.data.results[a.id];
       return `<div class="row"><span class="grow"><b>${esc(taskTitle(a))}</b><span class="small muted">${kindLabel(a)}${a.due ? " · termin: " + fmtDate(a.due) : ""}${isFuture(a) ? " · uczeń zobaczy od " + fmtDate(a.from) : ""}</span></span>${r ? (ownKind(a) ? `<span class="chip ok">zrobione${r.by === "student" ? " (uczeń)" : ""}</span><button class="btn sm ghost" type="button" data-mact="undone" data-id="${a.id}" title="Cofnij odhaczenie">↺</button>` : (resPend(r) ? pendChip(resPend(r)) : `<span class="chip ${pctCls(pct(r.score, r.max))}">${r.score}/${r.max}</span>`)) : (ownKind(a) ? `${/bad|warn/.test(waitChip(a)) ? waitChip(a) : ""}<button class="btn sm" type="button" data-mact="done" data-id="${a.id}">Odhacz</button>` : waitChip(a))}${r ? "" : `<input type="date" value="${esc(a.due || "")}" data-mdue="${a.id}" aria-label="Termin" style="width:auto;padding:5px 8px;font-size:13px"><button class="btn sm ghost" type="button" data-mact="del" data-id="${a.id}">usuń</button>`}</div>`; }), "")}${as.length ? `<div class="list">${ROWS.slice(0, as.length).join("")}</div>` : `<p class="empty">${asArch.length ? "Brak aktualnych zadań." : "Nic jeszcze nie zadano."}</p>`}${asArch.length ? `<details style="margin-top:12px"><summary class="small" style="cursor:pointer">Archiwum (${asArch.length})</summary><div class="list" style="margin-top:8px">${ROWS.slice(as.length).join("")}</div></details>` : ""}</section>`;
-    else if (sec === "lek") inner = `<div class="acts"><button class="btn sm primary" type="button" data-mact="newLesson">+ Lekcja</button></div>
+    else if (sec === "lek") inner = `<div class="acts"><button class="btn sm primary" type="button" data-mact="newLesson">+ Lekcja</button><button class="btn sm" type="button" data-mact="endDate">📅 Data końca zajęć</button></div>
     <section><h3>Najbliższe</h3>${up.length ? `<div class="list">${up.map(l => lessonRow(l, { showDate: true, showName: false })).join("")}</div>` : emptyP("Brak zaplanowanych lekcji.")}</section>
     <section><h3>Historia</h3>${past.length ? `<div class="list">${past.map(l => lessonRow(l, { showDate: true, showName: false })).join("")}</div>` : emptyP("Jeszcze nic.")}</section>`;
     else if (sec === "wpl") inner = `<div class="stats">${balanceBlock(b)}</div>${unpaidHtml(AL)}<div class="acts"><button class="btn sm primary" type="button" data-mact="newPayment">+ Wpłata</button><button class="btn sm" type="button" data-mact="newCharge">+ Zaległość</button><button class="btn sm ghost" type="button" data-mact="hidePay" title="Czy uczeń widzi w swojej aplikacji saldo, wpłaty i dane do przelewu">${s.hidePay ? "🙈 Ukryte przed uczniem – pokaż" : "👁 Uczeń widzi płatności – ukryj"}</button></div>
@@ -1961,6 +1993,7 @@ function studentModal(s) {
         if (u) { const ids = (u.studentIds || [u.studentId]).filter(x => x !== s.id), names = { ...(u.names || {}) }; delete names[s.id]; await B.set("users", s.uid, { ...u, studentIds: ids, studentId: ids.includes(u.studentId) ? u.studentId : ids[0], names }); }
         await B.update("students", s.id, { loginEmail: "", uid: "" }); Object.assign(s, { loginEmail: "", uid: "" }); toast("Odłączono"); draw(); }
       else if (k === "newLesson") { ov.remove(); lessonForm(null, { sid: s.id }); }
+      else if (k === "endDate") { ov.remove(); endDateForm(s.id); }
       else if (k === "newPayment") { ov.remove(); paymentForm(s.id); }
       else if (k === "newCharge") { ov.remove(); chargeForm(s.id); }
       else if (k === "hidePay") { const v = !s.hidePay; await B.update("students", s.id, { hidePay: v }); s.hidePay = v; toast(v ? "Uczeń nie widzi już płatności" : "Uczeń znowu widzi płatności"); draw(); }
