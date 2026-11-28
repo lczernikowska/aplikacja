@@ -578,6 +578,7 @@ function renderStudent() {
   if (S.view && S.view.type === "test") return renderTest();
   if (S.view && S.view.type === "note") return renderNote();
   if (S.stab === "notatki") { root.innerHTML = frame(renderNotatki()); return; }
+  if (S.stab === "sklep" && (S.data.me || {}).noShop) S.stab = "zad";
   if (S.stab === "sklep") { root.innerHTML = frame(renderSklep()); return; }
   const as = Object.values(S.data.assignments).filter(a => !isFuture(a)).sort((a, b) => (a.due || "").localeCompare(b.due || ""));
   const arch = as.filter(isArch).reverse(); const live = as.filter(a => !isArch(a));
@@ -1352,7 +1353,7 @@ function noteHtml(src, opts = {}) {
 }
 const NSTATE = { get() { try { return JSON.parse(localStorage.getItem("pe_notes_ui") || "{}"); } catch (e) { return {}; } }, set(o) { try { localStorage.setItem("pe_notes_ui", JSON.stringify({ ...NSTATE.get(), ...o })); } catch (e) { } } };
 function notesShell(inner) { return S.user.role === "admin" ? inner : stuTabs() + inner; }
-function stuTabs() { const t = S.stab || "zad"; return `<div class="subtabs" role="tablist" style="margin:4px 0 14px"><button data-act="stab" data-k="zad" aria-selected="${t === "zad"}">📋 Moje zadania</button><button data-act="stab" data-k="notatki" aria-selected="${t === "notatki"}">📚 Notatki</button>${(window.PE_SHOP || {}).items ? `<button data-act="stab" data-k="sklep" aria-selected="${t === "sklep"}">🛒 Sklep</button>` : ""}</div>`; }
+function stuTabs() { const t = S.stab || "zad"; return `<div class="subtabs" role="tablist" style="margin:4px 0 14px"><button data-act="stab" data-k="zad" aria-selected="${t === "zad"}">📋 Moje zadania</button><button data-act="stab" data-k="notatki" aria-selected="${t === "notatki"}">📚 Notatki</button>${(window.PE_SHOP || {}).items && !(S.data.me || {}).noShop ? `<button data-act="stab" data-k="sklep" aria-selected="${t === "sklep"}">🛒 Sklep</button>` : ""}</div>`; }
 const zlp = v => v.toLocaleString("pl-PL", { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 }) + " zł";
 function renderSklep() {
   const SH = window.PE_SHOP || { items: [] }; const groups = [...new Set(SH.items.map(x => x.group))];
@@ -1850,6 +1851,7 @@ function studentForm(sid) {
   <div class="frow"><label class="f">Klasa<input name="klasa" value="${esc(s.klasa || "")}" placeholder="np. 3 LO"></label><label class="f">Cel (opcjonalnie)<input name="goal" value="${esc(s.goal || "")}" placeholder="np. 70–80%"></label></div>
   <div class="frow"><label class="f">Telefon ucznia<input name="phone" type="tel" value="${esc(s.phone || "")}"></label><label class="f">E-mail ucznia<input name="email" type="email" value="${esc(s.email || "")}"></label></div>
   <div class="frow"><label class="f">Telefon rodzica<input name="parentPhone" type="tel" value="${esc(s.parentPhone || "")}"></label><label class="f">E-mail rodzica<input name="parentEmail" type="email" value="${esc(s.parentEmail || "")}"></label></div>
+  <label class="check"><input type="checkbox" name="noShop" ${s.noShop ? "checked" : ""}> Ukryj sklep w aplikacji tego ucznia</label>
   <label class="f">Notatki (widzisz je tylko ty)<textarea name="notes" rows="3">${esc(s.notes || "")}</textarea></label>`,
     onMount: (f, ov) => { const a = f.querySelector("[data-arch]"); if (a) a.addEventListener("click", async () => { await patchDoc("students", sid, { archived: !s.archived }); toast(s.archived ? "Przywrócono" : "Przeniesiono do archiwum"); ov.remove(); render(); }); },
     onSubmit: async fd => {
@@ -1858,7 +1860,7 @@ function studentForm(sid) {
       const subjects = Object.keys(SUBJ_UP).filter(k => fd.get("subj_" + k)).map(k => ({ subject: k, level: g("lvl_" + k), rate: num(fd.get("rate_" + k)) }));
       if (!subjects.length) { toast("Zaznacz co najmniej jeden przedmiot."); return false; }
       const now = new Date().toISOString();
-      const data = { name, subjects, subject: subjects[0].subject, level: subjects[0].level, rate: subjects[0].rate, subjectLabel: subjects.map(x => SUBJ[x.subject]).join(" + "), phone: g("phone"), email: g("email"), parentPhone: g("parentPhone"), parentEmail: g("parentEmail"), notes: g("notes"), klasa: g("klasa"), goal: g("goal"), updatedAt: now };
+      const data = { name, subjects, subject: subjects[0].subject, level: subjects[0].level, rate: subjects[0].rate, subjectLabel: subjects.map(x => SUBJ[x.subject]).join(" + "), phone: g("phone"), email: g("email"), parentPhone: g("parentPhone"), parentEmail: g("parentEmail"), notes: g("notes"), klasa: g("klasa"), goal: g("goal"), noShop: !!fd.get("noShop"), updatedAt: now };
       if (sid) await patchDoc("students", sid, data); else await putDoc("students", rid(), { ...data, createdAt: now });
       toast(sid ? "Zapisano zmiany" : "Dodano ucznia"); return true;
     }
